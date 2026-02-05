@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ipazia H.E.I - Confronto Stripe vs Revolut</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 30px;
+        }
+        .dashboard { max-width: 1100px; margin: 0 auto; }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 2.2rem;
+            background: linear-gradient(90deg, #60a5fa, #38bdf8, #60a5fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .header p { color: #93c5fd; font-size: 1.1rem; }
+
+        .savings-banner {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%);
+            border: 2px solid rgba(16, 185, 129, 0.4);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .savings-banner h2 { color: #34d399; font-size: 1.1rem; margin-bottom: 10px; }
+        .savings-amount { font-size: 3.5rem; font-weight: 800; color: #34d399; }
+        .savings-percent { color: #6ee7b7; font-size: 1.3rem; margin-left: 10px; }
+        .savings-subtitle { color: #6ee7b7; margin-top: 8px; }
+
+        .fees-comparison {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+        .fees-comparison h3 { color: #93c5fd; margin-bottom: 20px; font-size: 1.1rem; }
+        .fees-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .fee-card {
+            background: rgba(30, 58, 95, 0.5);
+            border-radius: 16px;
+            padding: 20px;
+        }
+        .fee-card.stripe { border-left: 4px solid #818cf8; }
+        .fee-card.revolut { border-left: 4px solid #3b82f6; }
+        .fee-card h4 { color: #e0e7ff; margin-bottom: 15px; font-size: 1rem; }
+        .fee-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .fee-row:last-child { border-bottom: none; }
+        .fee-label { color: #94a3b8; font-size: 0.9rem; }
+        .fee-value { color: #fff; font-weight: 600; }
+        .fee-value.highlight { color: #34d399; }
+
+        .years-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
+        .year-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            border-radius: 20px;
+            padding: 25px;
+        }
+        .year-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .year-title { font-size: 1.5rem; font-weight: 700; color: #60a5fa; }
+        .year-badge {
+            background: rgba(96, 165, 250, 0.2);
+            color: #93c5fd;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .year-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .stat-box {
+            background: rgba(30, 58, 95, 0.4);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-value { font-size: 1.3rem; font-weight: 700; }
+        .stat-value.stripe { color: #a5b4fc; }
+        .stat-value.revolut { color: #60a5fa; }
+        .stat-label { color: #94a3b8; font-size: 0.75rem; margin-top: 5px; }
+        .stat-pct { color: #64748b; font-size: 0.7rem; }
+        .savings-box {
+            grid-column: span 2;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        .savings-box span { color: #34d399; font-weight: 600; }
+
+        .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
+        .chart-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            border-radius: 20px;
+            padding: 25px;
+        }
+        .chart-card h3 { color: #e0e7ff; margin-bottom: 20px; font-size: 1rem; }
+
+        .projection-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+        .projection-card h3 { color: #e0e7ff; margin-bottom: 8px; }
+        .projection-card p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; }
+        .projection-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .projection-item {
+            background: rgba(30, 58, 95, 0.4);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .projection-value { font-size: 1.8rem; font-weight: 700; }
+        .projection-value.stripe { color: #a5b4fc; }
+        .projection-value.revolut { color: #60a5fa; }
+        .projection-value.savings { color: #34d399; }
+        .projection-label { color: #94a3b8; font-size: 0.85rem; margin-top: 8px; }
+
+        .notes-card {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 20px;
+            padding: 25px;
+        }
+        .notes-card h3 { color: #fbbf24; margin-bottom: 15px; }
+        .notes-card ul { list-style: none; }
+        .notes-card li { color: #fcd34d; opacity: 0.9; font-size: 0.9rem; padding: 5px 0; }
+        .notes-card li::before { content: "• "; color: #f59e0b; }
+
+        .footer { text-align: center; margin-top: 30px; color: #475569; font-size: 0.85rem; }
+
+        @media (max-width: 768px) {
+            .fees-grid, .years-grid, .charts-row, .projection-grid { grid-template-columns: 1fr; }
+            .savings-box { grid-column: span 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>IPAZIA H.E.I - Malta</h1>
+            <p>Confronto Fee: Stripe vs Revolut Business</p>
+        </div>
+
+        <div class="savings-banner">
+            <h2>RISPARMIO POTENZIALE TOTALE</h2>
+            <span class="savings-amount">€ 9.479,74</span>
+            <span class="savings-percent">(-24%)</span>
+            <p class="savings-subtitle">Su periodo 2025 + 2026 parziale</p>
+        </div>
+
+        <div class="fees-comparison">
+            <h3>Tariffe a Confronto</h3>
+            <div class="fees-grid">
+                <div class="fee-card stripe">
+                    <h4>● STRIPE</h4>
+                    <div class="fee-row">
+                        <span class="fee-label">Carte EEA Consumer</span>
+                        <span class="fee-value">1.5% + €0.25</span>
+                    </div>
+                    <div class="fee-row">
+                        <span class="fee-label">Carte EEA Commercial</span>
+                        <span class="fee-value">2.5% + €0.25</span>
+                    </div>
+                    <div class="fee-row">
+                        <span class="fee-label">Carte Non-EEA</span>
+                        <span class="fee-value">2.9% + €0.25</span>
+                    </div>
+                </div>
+                <div class="fee-card revolut">
+                    <h4>● REVOLUT</h4>
+                    <div class="fee-row">
+                        <span class="fee-label">Carte EEA Consumer</span>
+                        <span class="fee-value highlight">1.0% + €0.20</span>
+                    </div>
+                    <div class="fee-row">
+                        <span class="fee-label">Carte UK Consumer</span>
+                        <span class="fee-value">1.3% + €0.20</span>
+                    </div>
+                    <div class="fee-row">
+                        <span class="fee-label">Carte Non-EEA</span>
+                        <span class="fee-value">2.8% + €0.20</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="years-grid">
+            <div class="year-card">
+                <div class="year-header">
+                    <span class="year-title">2025</span>
+                    <span class="year-badge">Anno Completo</span>
+                </div>
+                <p style="color: #64748b; font-size: 0.85rem; margin-bottom: 15px;">Fatturato: €1.416.902 • 3.206 transazioni</p>
+                <div class="year-stats">
+                    <div class="stat-box">
+                        <div class="stat-value stripe">€ 30.340</div>
+                        <div class="stat-label">Fee Stripe</div>
+                        <div class="stat-pct">2,14%</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value revolut">€ 23.123</div>
+                        <div class="stat-label">Fee Revolut</div>
+                        <div class="stat-pct">1,63%</div>
+                    </div>
+                    <div class="savings-box">
+                        <span>Risparmio: € 7.217 (-23,8%)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="year-card">
+                <div class="year-header">
+                    <span class="year-title">2026</span>
+                    <span class="year-badge">Parziale</span>
+                </div>
+                <p style="color: #64748b; font-size: 0.85rem; margin-bottom: 15px;">Fatturato: €439.710 • 725 transazioni</p>
+                <div class="year-stats">
+                    <div class="stat-box">
+                        <div class="stat-value stripe">€ 9.178</div>
+                        <div class="stat-label">Fee Stripe</div>
+                        <div class="stat-pct">2,09%</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value revolut">€ 6.915</div>
+                        <div class="stat-label">Fee Revolut</div>
+                        <div class="stat-pct">1,57%</div>
+                    </div>
+                    <div class="savings-box">
+                        <span>Risparmio: € 2.263 (-24,7%)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="charts-row">
+            <div class="chart-card">
+                <h3>Confronto Fee per Anno</h3>
+                <canvas id="barChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Distribuzione con Revolut</h3>
+                <canvas id="pieChart"></canvas>
+            </div>
+        </div>
+
+        <div class="projection-card">
+            <h3>Proiezione Annuale</h3>
+            <p>Basata su fatturato annuo di €1.400.000</p>
+            <div class="projection-grid">
+                <div class="projection-item">
+                    <div class="projection-value stripe">€ 29.960</div>
+                    <div class="projection-label">Fee Stripe / anno</div>
+                </div>
+                <div class="projection-item">
+                    <div class="projection-value revolut">€ 22.848</div>
+                    <div class="projection-label">Fee Revolut / anno</div>
+                </div>
+                <div class="projection-item">
+                    <div class="projection-value savings">€ 7.112</div>
+                    <div class="projection-label">Risparmio / anno</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes-card">
+            <h3>Note Importanti</h3>
+            <ul>
+                <li>Stime basate su tariffe Revolut pubblicate a Febbraio 2026</li>
+                <li>~70% delle transazioni proviene da carte EEA (maggior risparmio)</li>
+                <li>Revolut offre: settlement giornaliero, no setup fee, rimborsi gratuiti</li>
+                <li>Verificare compatibilità con WooCommerce prima del passaggio</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            Ipazia H.E.I • Analisi Stripe vs Revolut • Febbraio 2026
+        </div>
+    </div>
+
+    <script>
+        // Bar Chart
+        new Chart(document.getElementById('barChart'), {
+            type: 'bar',
+            data: {
+                labels: ['2025', '2026'],
+                datasets: [
+                    { label: 'Stripe', data: [30340.40, 9178.24], backgroundColor: '#818cf8', borderRadius: 8 },
+                    { label: 'Revolut', data: [23123.42, 6915.49], backgroundColor: '#3b82f6', borderRadius: 8 }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 15 } },
+                    tooltip: {
+                        callbacks: { label: ctx => ctx.dataset.label + ': € ' + ctx.parsed.y.toLocaleString('it-IT', {minimumFractionDigits: 2}) }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#1e3a5f' }, ticks: { color: '#94a3b8', callback: v => '€' + (v/1000) + 'k' } },
+                    x: { grid: { display: false }, ticks: { color: '#e0e7ff' } }
+                }
+            }
+        });
+
+        // Pie Chart
+        new Chart(document.getElementById('pieChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Fee Revolut', 'Risparmio'],
+                datasets: [{ data: [30038.90, 9479.74], backgroundColor: ['#3b82f6', '#10b981'], borderWidth: 0, hoverOffset: 10 }]
+            },
+            options: {
+                responsive: true,
+                cutout: '60%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 15 } },
+                    tooltip: {
+                        callbacks: { label: ctx => ctx.label + ': € ' + ctx.parsed.toLocaleString('it-IT', {minimumFractionDigits: 2}) }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
