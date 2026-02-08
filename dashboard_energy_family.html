@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Energy Family — Dashboard Corsi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --card-hover: #222640;
+    --border: #2a2e45;
+    --text: #e4e6f0;
+    --text-muted: #8b8fa8;
+    --accent1: #6366f1;
+    --accent2: #a78bfa;
+    --accent3: #ec4899;
+    --accent4: #14b8a6;
+    --accent5: #f59e0b;
+    --donna: #ec4899;
+    --uomo: #6366f1;
+    --nd: #4b5563;
+    --green: #22c55e;
+    --red: #ef4444;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%); padding: 2rem 2rem 1.5rem; border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.5px; }
+  .header p { color: var(--text-muted); margin-top: 0.3rem; font-size: 0.95rem; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+
+  /* KPI Cards */
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; transition: transform 0.2s, box-shadow 0.2s; }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
+  .kpi-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.3rem; }
+  .kpi-value { font-size: 2rem; font-weight: 700; }
+  .kpi-sub { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem; }
+  .kpi-value.purple { color: var(--accent1); }
+  .kpi-value.pink { color: var(--accent3); }
+  .kpi-value.teal { color: var(--accent4); }
+  .kpi-value.amber { color: var(--accent5); }
+  .kpi-value.violet { color: var(--accent2); }
+
+  /* Sections */
+  .section { margin-bottom: 2rem; }
+  .section-title { font-size: 1.15rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+  .section-title .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* Chart Grid */
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1.2rem; }
+  .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; }
+  .chart-card h3 { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.8rem; color: var(--text-muted); }
+  .chart-container { position: relative; height: 300px; }
+  .chart-container.tall { height: 380px; }
+  .chart-container.short { height: 250px; }
+
+  /* Tabs */
+  .tab-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab-btn { background: var(--card); border: 1px solid var(--border); color: var(--text-muted); padding: 0.4rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.82rem; transition: all 0.2s; }
+  .tab-btn:hover { background: var(--card-hover); color: var(--text); }
+  .tab-btn.active { background: var(--accent1); color: white; border-color: var(--accent1); }
+
+  /* Funnel */
+  .funnel { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.5rem 0; }
+  .funnel-step { display: flex; align-items: center; gap: 1rem; }
+  .funnel-label { width: 130px; font-size: 0.85rem; text-align: right; color: var(--text-muted); }
+  .funnel-bar-wrap { flex: 1; height: 38px; background: rgba(99,102,241,0.1); border-radius: 8px; position: relative; overflow: hidden; }
+  .funnel-bar { height: 100%; border-radius: 8px; display: flex; align-items: center; padding-left: 1rem; font-weight: 600; font-size: 0.85rem; transition: width 1s ease; }
+  .funnel-count { margin-left: auto; padding-right: 1rem; font-size: 0.85rem; }
+  .funnel-pct { width: 55px; font-size: 0.82rem; color: var(--text-muted); text-align: left; }
+
+  /* Upsell cards */
+  .upsell-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+  .upsell-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; }
+  .upsell-card h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .upsell-number { font-size: 2.2rem; font-weight: 700; color: var(--accent5); }
+  .upsell-detail { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.5; }
+  .progress-bar { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; margin-top: 0.6rem; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .funnel-label { width: 90px; font-size: 0.75rem; }
+    .header h1 { font-size: 1.3rem; }
+  }
+
+  /* Footer */
+  .footer { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.75rem; border-top: 1px solid var(--border); margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Energy Family — Dashboard Corsi</h1>
+  <p>Analisi partecipanti · Dati da ActiveCampaign · Febbraio 2026</p>
+</div>
+
+<div class="container">
+
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Persone Uniche</div>
+      <div class="kpi-value purple">1.873</div>
+      <div class="kpi-sub">Totale contatti nel database</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Livello 1</div>
+      <div class="kpi-value pink">1.873</div>
+      <div class="kpi-sub">100% dei contatti</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Livello 2</div>
+      <div class="kpi-value teal">633</div>
+      <div class="kpi-sub">33,8% dei LVL1</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Coni di Luce</div>
+      <div class="kpi-value amber">227</div>
+      <div class="kpi-sub">12,1% dei LVL1</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Supporto LVL1</div>
+      <div class="kpi-value violet">834</div>
+      <div class="kpi-sub">44,5% dei LVL1</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Supporto LVL2</div>
+      <div class="kpi-value purple">71</div>
+      <div class="kpi-sub">11,2% dei LVL2</div>
+    </div>
+  </div>
+
+  <!-- FUNNEL -->
+  <div class="section">
+    <div class="section-title"><span class="dot" style="background:var(--accent1)"></span> Funnel di Progressione</div>
+    <div class="chart-card">
+      <div class="funnel" id="funnel"></div>
+    </div>
+  </div>
+
+  <!-- GENERE -->
+  <div class="section">
+    <div class="section-title"><span class="dot" style="background:var(--accent3)"></span> Distribuzione per Genere</div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Tutti i Corsi — Genere</h3>
+        <div class="tab-bar" id="genderTabs"></div>
+        <div class="chart-container"><canvas id="genderChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Confronto Genere per Corso</h3>
+        <div class="chart-container"><canvas id="genderCompareChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ETÀ -->
+  <div class="section">
+    <div class="section-title"><span class="dot" style="background:var(--accent4)"></span> Distribuzione per Fascia d'Età</div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Fasce d'Età per Corso</h3>
+        <div class="tab-bar" id="ageTabs"></div>
+        <div class="chart-container"><canvas id="ageChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Confronto Età — Tutti i Corsi</h3>
+        <div class="chart-container"><canvas id="ageCompareChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GEOGRAFIA -->
+  <div class="section">
+    <div class="section-title"><span class="dot" style="background:var(--accent5)"></span> Distribuzione Geografica</div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Nazionalità</h3>
+        <div class="tab-bar" id="countryTabs"></div>
+        <div class="chart-container tall"><canvas id="countryChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Top 15 Città</h3>
+        <div class="tab-bar" id="cityTabs"></div>
+        <div class="chart-container tall"><canvas id="cityChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UPSELL / MARKETING -->
+  <div class="section">
+    <div class="section-title"><span class="dot" style="background:var(--green)"></span> Opportunità di Marketing — Upsell</div>
+    <div class="upsell-grid">
+      <div class="upsell-card">
+        <h4>Potenziali Livello 2</h4>
+        <div class="upsell-number">1.240</div>
+        <div class="upsell-detail">Persone con LVL1 che non hanno ancora fatto il LVL2</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:66.2%;background:var(--accent3)"></div></div>
+        <div class="progress-label"><span>Non convertiti</span><span>66,2%</span></div>
+      </div>
+      <div class="upsell-card">
+        <h4>Potenziali Supporto LVL1</h4>
+        <div class="upsell-number">1.039</div>
+        <div class="upsell-detail">Persone con LVL1 che non hanno partecipato a nessun Supporto LVL1</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:55.5%;background:var(--accent1)"></div></div>
+        <div class="progress-label"><span>Non convertiti</span><span>55,5%</span></div>
+      </div>
+      <div class="upsell-card">
+        <h4>Potenziali Supporto LVL2</h4>
+        <div class="upsell-number">562</div>
+        <div class="upsell-detail">Persone con LVL2 che non hanno partecipato a nessun Supporto LVL2</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:88.8%;background:var(--red)"></div></div>
+        <div class="progress-label"><span>Non convertiti</span><span>88,8%</span></div>
+      </div>
+      <div class="upsell-card">
+        <h4>Potenziali Coni di Luce</h4>
+        <div class="upsell-number">1.646</div>
+        <div class="upsell-detail">Persone con LVL1+ che non hanno ancora fatto Coni di Luce</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:87.9%;background:var(--accent5)"></div></div>
+        <div class="progress-label"><span>Non convertiti</span><span>87,9%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UPSELL SEGMENTS DEMOGRAPHICS -->
+  <div class="section">
+    <div class="section-title"><span class="dot" style="background:var(--accent2)"></span> Profilo Segmenti Upsell</div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Genere dei Segmenti Upsell</h3>
+        <div class="chart-container"><canvas id="segGenderChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Età dei Segmenti Upsell</h3>
+        <div class="tab-bar" id="segAgeTabs"></div>
+        <div class="chart-container"><canvas id="segAgeChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Energy Family — Dashboard generata il 7 Febbraio 2026 · Dati da ActiveCampaign · Nessun dato personale (nomi/email) incluso
+</div>
+
+<script>
+// ========== DATA ==========
+const DATA = {
+  overview: {"Livello 1":1873,"Livello 2":633,"Supporto LVL1":834,"Supporto LVL2":71,"Coni di Luce":227},
+  gender: {"Livello 1":{"DONNA":697,"UOMO":456,"N/D":720},"Livello 2":{"DONNA":320,"UOMO":175,"N/D":138},"Supporto LVL1":{"DONNA":488,"UOMO":331,"N/D":15},"Supporto LVL2":{"DONNA":46,"UOMO":23,"N/D":2},"Coni di Luce":{"DONNA":143,"UOMO":74,"N/D":10}},
+  age: {"Livello 1":{"<18":85,"18-24":13,"25-34":96,"35-44":200,"45-54":359,"55-64":313,"65+":140,"N/D":667},"Livello 2":{"<18":25,"18-24":6,"25-34":29,"35-44":88,"45-54":160,"55-64":131,"65+":66,"N/D":128},"Supporto LVL1":{"<18":6,"18-24":9,"25-34":63,"35-44":128,"45-54":258,"55-64":246,"65+":113,"N/D":11},"Supporto LVL2":{"<18":1,"18-24":0,"25-34":3,"35-44":6,"45-54":26,"55-64":22,"65+":11,"N/D":2},"Coni di Luce":{"<18":5,"18-24":0,"25-34":12,"35-44":27,"45-54":79,"55-64":60,"65+":33,"N/D":11}},
+  country: {"Livello 1":{"Italia":900,"Israele":389,"Sconosciuto":332,"Messico":53,"Svizzera":49,"Regno Unito":41,"Francia":18,"Romania":18,"Bulgaria":16,"Germania":11,"USA":11,"Malta":10,"Spagna":9},"Livello 2":{"Italia":329,"Israele":128,"Messico":48,"Sconosciuto":31,"Svizzera":31,"Regno Unito":25,"USA":9,"Germania":8,"Bulgaria":6,"Francia":4,"Romania":4,"Spagna":3,"Malta":2},"Supporto LVL1":{"Italia":761,"Svizzera":29,"Francia":14,"Sconosciuto":11,"Malta":7,"Germania":3,"San Marino":2},"Supporto LVL2":{"Italia":65,"Svizzera":5,"Francia":1},"Coni di Luce":{"Italia":186,"Israele":12,"Svizzera":12,"Spagna":6,"Francia":3,"Regno Unito":3,"Messico":1,"USA":1,"Germania":1}},
+  city: {"Livello 1":{"Roma":65,"Milano":47,"Assisi":36,"Tel Aviv":34,"Jerusalem":23,"Modena":21,"Brescia":20,"Castiglione Delle Stiviere":18,"Napoli":17,"Haifa":16,"Nocera Umbra":15,"London":13,"Bologna":13,"Ancona":12,"Sofia":12},"Livello 2":{"Roma":25,"Milano":23,"Assisi":18,"Tel Aviv":10,"Brescia":10,"Cdmx":9,"Haifa":9,"Nocera Umbra":8,"London":7,"Jerusalem":7,"Castiglione Delle Stiviere":7,"Rehovot":6,"Ramat Gan":6,"Gordola":6,"Modena":5},"Supporto LVL1":{"Roma":48,"Milano":37,"Assisi":31,"Modena":20,"Brescia":17,"Napoli":15,"Bologna":13,"Castiglione Delle Stiviere":13,"Nocera Umbra":11,"Ancona":11,"Catanzaro":8,"Vicenza":8,"Ravenna":6,"Perugia":6,"Piacenza":6},"Supporto LVL2":{"Milano":9,"Assisi":5,"Roma":4,"Casalecchio Di Reno":2,"Pistoia":2,"Brescia":2,"Gordola":2,"Ravenna":2},"Coni di Luce":{"Milano":13,"Roma":12,"Assisi":10,"Brescia":9,"Modena":5,"Foggia":4,"Catanzaro":4,"Salerno":4,"Lecco":3,"Vibo Valentia":3,"Roveredo":3,"Castiglione Delle Stiviere":3,"Ravenna":2,"Piacenza":2}},
+  funnel: [{"stage":"Livello 1","count":1873},{"stage":"Supporto LVL1","count":834},{"stage":"Livello 2","count":633},{"stage":"Supporto LVL2","count":71},{"stage":"Coni di Luce","count":227}],
+  segments: {"Potenziali LVL2":{"gender":{"DONNA":377,"UOMO":281,"N/D":582},"age":{"<18":60,"18-24":7,"25-34":67,"35-44":112,"45-54":199,"55-64":182,"65+":74,"N/D":539},"total":1240},"Potenziali Supporto LVL1":{"gender":{"DONNA":209,"UOMO":125,"N/D":705},"age":{"<18":79,"18-24":4,"25-34":33,"35-44":72,"45-54":101,"55-64":67,"65+":27,"N/D":656},"total":1039},"Potenziali Coni di Luce":{"gender":{"DONNA":554,"UOMO":382,"N/D":710},"age":{"<18":80,"18-24":13,"25-34":84,"35-44":173,"45-54":280,"55-64":253,"65+":107,"N/D":656},"total":1646},"Potenziali Supporto LVL2":{"gender":{"DONNA":274,"UOMO":152,"N/D":136},"age":{"<18":24,"18-24":6,"25-34":26,"35-44":82,"45-54":134,"55-64":109,"65+":55,"N/D":126},"total":562}}
+};
+
+const COURSES = Object.keys(DATA.overview);
+const AGE_ORDER = ['<18','18-24','25-34','35-44','45-54','55-64','65+','N/D'];
+const COLORS = {
+  courses: ['#6366f1','#a78bfa','#ec4899','#14b8a6','#f59e0b'],
+  gender: ['#ec4899','#6366f1','#4b5563'],
+  age: ['#f87171','#fb923c','#fbbf24','#34d399','#22d3ee','#818cf8','#c084fc','#6b7280'],
+  country: ['#6366f1','#a78bfa','#c084fc','#ec4899','#f472b6','#fb923c','#fbbf24','#34d399','#22d3ee','#818cf8','#64748b','#94a3b8','#cbd5e1'],
+};
+
+Chart.defaults.color = '#8b8fa8';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+// ========== FUNNEL ==========
+function buildFunnel() {
+  const el = document.getElementById('funnel');
+  const max = DATA.funnel[0].count;
+  const colors = ['#6366f1','#a78bfa','#ec4899','#14b8a6','#f59e0b'];
+  el.innerHTML = DATA.funnel.map((f, i) => {
+    const pct = (f.count / max * 100);
+    return `<div class="funnel-step">
+      <div class="funnel-label">${f.stage}</div>
+      <div class="funnel-bar-wrap">
+        <div class="funnel-bar" style="width:${pct}%;background:${colors[i]}">
+          <span>${f.count.toLocaleString('it')}</span>
+          <span class="funnel-count"></span>
+        </div>
+      </div>
+      <div class="funnel-pct">${pct.toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ========== TABBED CHARTS ==========
+function createTabs(containerId, labels, onClick) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = labels.map((l, i) =>
+    `<button class="tab-btn${i===0?' active':''}" data-idx="${i}">${l}</button>`
+  ).join('');
+  el.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onClick(parseInt(btn.dataset.idx));
+    });
+  });
+}
+
+// ========== GENDER ==========
+let genderChart;
+function updateGenderChart(idx) {
+  const course = COURSES[idx];
+  const d = DATA.gender[course];
+  const labels = ['Donna','Uomo','N/D'];
+  const values = [d.DONNA||0, d.UOMO||0, d['N/D']||0];
+  if (genderChart) genderChart.destroy();
+  genderChart = new Chart(document.getElementById('genderChart'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: COLORS.gender, borderWidth: 0, hoverOffset: 8 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true, pointStyleWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw} (${(ctx.raw/values.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)` } }
+      }
+    }
+  });
+}
+
+function buildGenderCompare() {
+  const labels = COURSES;
+  const donna = COURSES.map(c => DATA.gender[c].DONNA || 0);
+  const uomo = COURSES.map(c => DATA.gender[c].UOMO || 0);
+  const nd = COURSES.map(c => DATA.gender[c]['N/D'] || 0);
+  new Chart(document.getElementById('genderCompareChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Donna', data: donna, backgroundColor: '#ec4899', borderRadius: 4 },
+        { label: 'Uomo', data: uomo, backgroundColor: '#6366f1', borderRadius: 4 },
+        { label: 'N/D', data: nd, backgroundColor: '#4b5563', borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, pointStyleWidth: 12, padding: 15 } } },
+      scales: {
+        x: { stacked: true, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true }
+      }
+    }
+  });
+}
+
+// ========== AGE ==========
+let ageChart;
+function updateAgeChart(idx) {
+  const course = COURSES[idx];
+  const d = DATA.age[course];
+  const values = AGE_ORDER.map(k => d[k] || 0);
+  if (ageChart) ageChart.destroy();
+  ageChart = new Chart(document.getElementById('ageChart'), {
+    type: 'bar',
+    data: {
+      labels: AGE_ORDER,
+      datasets: [{ data: values, backgroundColor: COLORS.age, borderRadius: 6, borderSkipped: false }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} persone` } } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true } }
+    }
+  });
+}
+
+function buildAgeCompare() {
+  const datasets = COURSES.map((c, i) => ({
+    label: c,
+    data: AGE_ORDER.filter(k => k !== 'N/D').map(k => DATA.age[c][k] || 0),
+    borderColor: COLORS.courses[i],
+    backgroundColor: COLORS.courses[i] + '33',
+    tension: 0.3,
+    fill: false,
+    pointRadius: 4,
+  }));
+  new Chart(document.getElementById('ageCompareChart'), {
+    type: 'line',
+    data: { labels: AGE_ORDER.filter(k => k !== 'N/D'), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, pointStyleWidth: 12, padding: 12 } } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true } }
+    }
+  });
+}
+
+// ========== COUNTRY ==========
+let countryChart;
+function updateCountryChart(idx) {
+  const course = COURSES[idx];
+  const d = DATA.country[course];
+  const entries = Object.entries(d).filter(([k]) => k !== 'Sconosciuto').sort((a,b) => b[1]-a[1]).slice(0,10);
+  if (countryChart) countryChart.destroy();
+  countryChart = new Chart(document.getElementById('countryChart'), {
+    type: 'bar',
+    data: {
+      labels: entries.map(e => e[0]),
+      datasets: [{ data: entries.map(e => e[1]), backgroundColor: COLORS.country, borderRadius: 6, borderSkipped: false }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} persone` } } },
+      scales: { y: { grid: { display: false } }, x: { beginAtZero: true } }
+    }
+  });
+}
+
+// ========== CITY ==========
+let cityChart;
+function updateCityChart(idx) {
+  const course = COURSES[idx];
+  const d = DATA.city[course];
+  const entries = Object.entries(d).sort((a,b) => b[1]-a[1]).slice(0,15);
+  if (cityChart) cityChart.destroy();
+  cityChart = new Chart(document.getElementById('cityChart'), {
+    type: 'bar',
+    data: {
+      labels: entries.map(e => e[0]),
+      datasets: [{ data: entries.map(e => e[1]), backgroundColor: '#a78bfa', borderRadius: 6, borderSkipped: false }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} persone` } } },
+      scales: { y: { grid: { display: false } }, x: { beginAtZero: true } }
+    }
+  });
+}
+
+// ========== SEGMENT CHARTS ==========
+function buildSegGenderChart() {
+  const segs = Object.keys(DATA.segments);
+  const donna = segs.map(s => DATA.segments[s].gender.DONNA || 0);
+  const uomo = segs.map(s => DATA.segments[s].gender.UOMO || 0);
+  const nd = segs.map(s => DATA.segments[s].gender['N/D'] || 0);
+  new Chart(document.getElementById('segGenderChart'), {
+    type: 'bar',
+    data: {
+      labels: segs,
+      datasets: [
+        { label: 'Donna', data: donna, backgroundColor: '#ec4899', borderRadius: 4 },
+        { label: 'Uomo', data: uomo, backgroundColor: '#6366f1', borderRadius: 4 },
+        { label: 'N/D', data: nd, backgroundColor: '#4b5563', borderRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, pointStyleWidth: 12, padding: 12 } } },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } }
+    }
+  });
+}
+
+let segAgeChart;
+function updateSegAgeChart(idx) {
+  const segs = Object.keys(DATA.segments);
+  const seg = segs[idx];
+  const d = DATA.segments[seg].age;
+  const ageLabels = AGE_ORDER.filter(k => k !== 'N/D');
+  const values = ageLabels.map(k => d[k] || 0);
+  if (segAgeChart) segAgeChart.destroy();
+  segAgeChart = new Chart(document.getElementById('segAgeChart'), {
+    type: 'bar',
+    data: {
+      labels: ageLabels,
+      datasets: [{ data: values, backgroundColor: COLORS.age.slice(0,7), borderRadius: 6, borderSkipped: false }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true } }
+    }
+  });
+}
+
+// ========== INIT ==========
+buildFunnel();
+
+createTabs('genderTabs', COURSES, updateGenderChart);
+updateGenderChart(0);
+buildGenderCompare();
+
+createTabs('ageTabs', COURSES, updateAgeChart);
+updateAgeChart(0);
+buildAgeCompare();
+
+createTabs('countryTabs', COURSES, updateCountryChart);
+updateCountryChart(0);
+
+createTabs('cityTabs', COURSES, updateCityChart);
+updateCityChart(0);
+
+buildSegGenderChart();
+const segNames = Object.keys(DATA.segments);
+createTabs('segAgeTabs', segNames, updateSegAgeChart);
+updateSegAgeChart(0);
+</script>
+
+</body>
+</html>
