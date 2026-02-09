@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grid Sequence Animation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060610;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden}
+canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+const cvs = document.getElementById('c');
+const ctx = cvs.getContext('2d');
+
+// ─── Sizing ───
+let W, H, CELL, BOX, OX, OY;
+function resize() {
+  W = cvs.width = window.innerWidth;
+  H = cvs.height = window.innerHeight;
+  const g = Math.min(W, H) * 0.82;   // grid fills more of the viewport
+  CELL = g / 3;                        // spacing = grid / 3 gaps (4 cols → 3 gaps)
+  BOX = CELL * 0.16;                   // half-size of each cell box (small, like the photo)
+  OX = (W - g) / 2;
+  OY = (H - g) / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Helpers ───
+function xy(i) {
+  const n = i - 1;
+  const col = n % 4, row = (n / 4) | 0;
+  return { x: OX + col * (CELL), y: OY + row * (CELL) };
+}
+function ease(t) { return t < .5 ? 2*t*t : -1+(4-2*t)*t; }
+
+// Direct lerp between two cells (straight line, including diagonal)
+function lerpDirect(from, to, t) {
+  const a = xy(from), b = xy(to);
+  const et = ease(t);
+  return { x: a.x + (b.x - a.x) * et, y: a.y + (b.y - a.y) * et };
+}
+
+// ─── Sequences ───
+// Cell mapping:
+//   1=cell10  2=cell6   3=cell7   4/quattro=cell11
+//   B=cell1   C=cell2   A=cell5
+//   +=cell3(più)  ==cell4(uguale)  -=cell8(meno)
+//   □=cell9(quadrato)  ⊙=cell12(sole)  ○=cell13(cerchio)
+//   △=cell14(triangolo)  ☆=cell15(stella)  🌙=cell16(luna)
+const SEQUENCES = [
+  {
+    // Sequence 1 (blue): 1→2→3→4→1
+    cells: [10, 6, 7, 11, 10],
+    hue: [30,140,255],
+    glow: [50,180,255],
+    particle: [120,220,255],
+    core: [220,245,255]
+  },
+  {
+    // Sequence 2 (orange): 1→2→1→3→4→2→1→□→1→△→1
+    cells: [10, 6, 10, 7, 11, 6, 10, 9, 10, 14, 10],
+    hue: [255,140,30],
+    glow: [255,180,50],
+    particle: [255,200,80],
+    core: [255,240,200]
+  },
+  {
+    // Sequence 3 (yellow): 1→○→1→2→3→+→=→−→3→4→2→B→C→A→2→1→4→⊙→🌙→☆→1
+    cells: [10, 13, 10, 6, 7, 3, 4, 8, 7, 11, 6, 1, 2, 5, 6, 10, 11, 12, 16, 15, 10],
+    hue: [255,220,30],
+    glow: [255,240,60],
+    particle: [255,245,120],
+    core: [255,255,220]
+  },
+  {
+    // Sequence 4 (green): 1→2→3→4→1→3→2→4→3→+→2→A→B→C→2→1→△→○→1→3→=→−→⊙→🌙→4→1→1
+    cells: [10, 6, 7, 11, 10, 7, 6, 11, 7, 3, 6, 5, 1, 2, 6, 10, 14, 13, 10, 7, 4, 8, 12, 16, 11, 10, 10],
+    hue: [30,220,80],
+    glow: [60,255,100],
+    particle: [100,255,140],
+    core: [210,255,220]
+  }
+];
+
+// ─── Timing (constant for ALL sequences) ───
+const HOLD_T  = 600;   // hold time per cell (constant)
+const MOVE_T  = 500;   // move time to next cell (constant, regardless of distance)
+const PULSE_T = 500;   // pulse time for same-cell (matches MOVE_T)
+const PAUSE_T = 1500;  // pause between sequences
+
+// ─── State ───
+let seqIdx = 0;
+let step = 0;
+let phase = 'fadein';  // fadein | hold | flow | pulse | pause
+let pt = 0;
+let trail = [];
+const glow = new Float32Array(16);
+let fc = 0;
+let curColor = SEQUENCES[0];
+
+// ─── Draw symbol ───
+function drawSym(idx, cx, cy, sz, a) {
+  ctx.save();
+  const col = `rgba(180,200,230,${a})`;
+  ctx.fillStyle = col;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.8;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const s = sz * 0.6;
+
+  const numMap = {10:'1', 6:'2', 7:'3', 11:'4'};
+
+  switch(idx) {
+    case 1: case 2: case 5: {
+      const ch = idx===1?'B':idx===2?'C':'A';
+      ctx.font = `600 ${sz*1.15}px Georgia,serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ch, cx, cy+sz*0.03);
+    } break;
+
+    case 6: case 7: case 10: case 11: {
+      ctx.font = `700 ${sz*1.2}px 'Helvetica Neue',Arial,sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(numMap[idx], cx, cy+sz*0.04);
+    } break;
+
+    case 3:
+      ctx.beginPath();
+      ctx.moveTo(cx-s*.55,cy); ctx.lineTo(cx+s*.55,cy);
+      ctx.moveTo(cx,cy-s*.55); ctx.lineTo(cx,cy+s*.55);
+      ctx.stroke();
+      break;
+
+    case 4:
+      ctx.beginPath();
+      ctx.moveTo(cx-s*.45,cy-s*.18); ctx.lineTo(cx+s*.45,cy-s*.18);
+      ctx.moveTo(cx-s*.45,cy+s*.18); ctx.lineTo(cx+s*.45,cy+s*.18);
+      ctx.stroke();
+      break;
+
+    case 8:
+      ctx.beginPath();
+      ctx.moveTo(cx-s*.45,cy); ctx.lineTo(cx+s*.45,cy);
+      ctx.stroke();
+      break;
+
+    case 9: {
+      const h=s*.32;
+      ctx.strokeRect(cx-h,cy-h,h*2,h*2);
+    } break;
+
+    case 12:
+      ctx.beginPath(); ctx.arc(cx,cy,s*.43,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx,cy,2.5,0,Math.PI*2); ctx.fill();
+      break;
+
+    case 13:
+      ctx.beginPath(); ctx.arc(cx,cy,s*.42,0,Math.PI*2); ctx.stroke();
+      break;
+
+    case 14: {
+      const r=s*.45;
+      ctx.beginPath(); ctx.moveTo(cx,cy-r);
+      ctx.lineTo(cx+r*.87,cy+r*.5);
+      ctx.lineTo(cx-r*.87,cy+r*.5);
+      ctx.closePath(); ctx.stroke();
+    } break;
+
+    case 15: {
+      const or_=s*.48, ir_=or_*.38;
+      ctx.beginPath();
+      for(let i=0;i<10;i++){
+        const ang=-Math.PI/2+i*Math.PI/5;
+        const r=i%2?ir_:or_;
+        ctx[i?'lineTo':'moveTo'](cx+Math.cos(ang)*r, cy+Math.sin(ang)*r);
+      }
+      ctx.closePath(); ctx.stroke();
+    } break;
+
+    case 16: {
+      const mr=s*.42, off=mr*.4, ir=mr*.75;
+      const xi=(ir*ir-mr*mr-off*off)/(2*off);
+      const yi2=mr*mr-xi*xi;
+      if(yi2>0){
+        const yi=Math.sqrt(yi2);
+        ctx.beginPath();
+        ctx.arc(cx,cy,mr,Math.atan2(-yi,xi),Math.atan2(yi,xi),false);
+        ctx.arc(cx-off,cy,ir,Math.atan2(yi,xi+off),Math.atan2(-yi,xi+off),true);
+        ctx.closePath(); ctx.fill();
+      }
+    } break;
+  }
+  ctx.restore();
+}
+
+// ─── Draw cell ───
+function drawCell(i) {
+  const {x,y} = xy(i);
+  const g = glow[i-1];
+  const half = BOX;
+  ctx.save();
+
+  const c = curColor;
+
+  if(g>.03){
+    const gr = ctx.createRadialGradient(x,y,0,x,y,BOX*4);
+    gr.addColorStop(0,`rgba(${c.hue[0]},${c.hue[1]},${c.hue[2]},${g*.18})`);
+    gr.addColorStop(1,`rgba(${c.hue[0]},${c.hue[1]},${c.hue[2]},0)`);
+    ctx.fillStyle = gr;
+    ctx.fillRect(x-BOX*4,y-BOX*4,BOX*8,BOX*8);
+    ctx.shadowColor=`rgba(${c.glow[0]},${c.glow[1]},${c.glow[2]},${g*.8})`;
+    ctx.shadowBlur=18*g;
+  }
+
+  const a=.25+g*.75;
+  ctx.strokeStyle = g>.08
+    ? `rgba(${c.glow[0]},${c.glow[1]},${c.glow[2]},${a})`
+    : `rgba(140,160,190,${a})`;
+  ctx.lineWidth = 1.2+g*.5;
+  ctx.strokeRect(x-half,y-half,half*2,half*2);
+  ctx.shadowBlur=0;
+  drawSym(i, x, y, half*.9, a);
+  ctx.restore();
+}
+
+// ─── Grid connector lines ───
+function drawLines() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(60,80,120,0.07)';
+  ctx.lineWidth = 0.8;
+  for(let r=0;r<4;r++) for(let c=0;c<4;c++){
+    const i=r*4+c+1, p=xy(i);
+    if(c<3){ const n=xy(i+1); ctx.beginPath(); ctx.moveTo(p.x+BOX,p.y); ctx.lineTo(n.x-BOX,p.y); ctx.stroke(); }
+    if(r<3){ const n=xy(i+4); ctx.beginPath(); ctx.moveTo(p.x,p.y+BOX); ctx.lineTo(p.x,n.y-BOX); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
+// ─── Flow particle + trail ───
+function drawParticle(x,y) {
+  ctx.save();
+  const c = curColor;
+  const pr = BOX * 1.6;  // particle radius proportional to cell size
+  const gr=ctx.createRadialGradient(x,y,0,x,y,pr);
+  gr.addColorStop(0,`rgba(${c.particle[0]},${c.particle[1]},${c.particle[2]},0.9)`);
+  gr.addColorStop(.3,`rgba(${c.hue[0]},${c.hue[1]},${c.hue[2]},0.35)`);
+  gr.addColorStop(1,`rgba(${c.hue[0]},${c.hue[1]},${c.hue[2]},0)`);
+  ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(x,y,pr,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=`rgba(${c.core[0]},${c.core[1]},${c.core[2]},0.95)`;
+  ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawTrail() {
+  const c = curColor;
+  const tr = BOX * 0.8;  // trail radius proportional to cell size
+  for(let i=0;i<trail.length;i++){
+    const t=1-i/trail.length;
+    const {x,y}=trail[i];
+    ctx.save();
+    const gr=ctx.createRadialGradient(x,y,0,x,y,tr*t);
+    gr.addColorStop(0,`rgba(${c.particle[0]},${c.particle[1]},${c.particle[2]},${t*.45})`);
+    gr.addColorStop(1,`rgba(${c.particle[0]},${c.particle[1]},${c.particle[2]},0)`);
+    ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(x,y,tr*t,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ─── Advance to next step or sequence ───
+function nextStep(now) {
+  const seq = SEQUENCES[seqIdx];
+  step++;
+  if (step >= seq.cells.length - 1) {
+    phase = 'pause';
+    pt = now;
+    trail = [];
+  } else {
+    phase = 'hold';
+    pt = now;
+  }
+}
+
+// ─── Main loop ───
+let t0 = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if(!t0){ t0=now; pt=now; }
+  const el = now - pt;
+  glow.fill(0);
+  let particle = null;
+
+  const seq = SEQUENCES[seqIdx];
+  curColor = seq;
+
+  if (phase === 'pause') {
+    if (el >= PAUSE_T) {
+      seqIdx = (seqIdx + 1) % SEQUENCES.length;
+      step = 0;
+      phase = 'fadein';
+      pt = now;
+      curColor = SEQUENCES[seqIdx];
+    }
+  }
+  else if (phase === 'fadein') {
+    const cur = seq.cells[step];
+    const t = Math.min(1, el / 400);
+    glow[cur-1] = ease(t);
+    if (t >= 1) { phase = 'hold'; pt = now; }
+  }
+  else if (phase === 'hold') {
+    const cur = seq.cells[step];
+    glow[cur-1] = 0.9 + 0.1 * Math.cos(el * .005);
+    if (el >= HOLD_T) {
+      const nxt = seq.cells[step + 1];
+      if (cur === nxt) {
+        phase = 'pulse';
+        pt = now;
+      } else {
+        phase = 'flow';
+        pt = now;
+        trail = [];
+      }
+    }
+  }
+  else if (phase === 'pulse') {
+    const cur = seq.cells[step];
+    const t = Math.min(1, el / PULSE_T);
+    const pulse = Math.sin(t * Math.PI);
+    glow[cur-1] = 0.5 + 0.5 * pulse;
+    if (t >= 1) { nextStep(now); }
+  }
+  else if (phase === 'flow') {
+    const cur = seq.cells[step];
+    const nxt = seq.cells[step + 1];
+    const t = Math.min(1, el / MOVE_T);  // constant time, always the same
+
+    // Fade out source, fade in destination
+    glow[cur-1] = Math.max(0, 1 - t * 1.6);
+    if (t > .55) glow[nxt-1] = ease((t - .55) / .45);
+
+    // Direct straight-line movement (diagonal when needed)
+    particle = lerpDirect(cur, nxt, t);
+    if (fc % 2 === 0) {
+      trail.unshift({...particle});
+      if (trail.length > 14) trail.pop();
+    }
+    if (t >= 1) {
+      trail = [];
+      particle = null;
+      nextStep(now);
+    }
+  }
+
+  // ─── Render ───
+  ctx.clearRect(0, 0, W, H);
+  drawLines();
+  for (let i = 1; i <= 16; i++) drawCell(i);
+  if (trail.length) drawTrail();
+  if (particle) drawParticle(particle.x, particle.y);
+  fc++;
+}
+
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
