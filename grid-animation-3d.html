@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grid Sequence Animation – V3 → 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060610;overflow:hidden}
+canvas{display:block}
+</style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+/* ═══════════════════════════════════════════
+   V3 → 3D  (particella luminosa, scie neon)
+   Nessun Pac-Man — stile originale V3
+   ═══════════════════════════════════════════ */
+
+// ─── Scene ───
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060610);
+scene.fog = new THREE.FogExp2(0x060610, 0.018);
+
+const camera = new THREE.PerspectiveCamera(48, innerWidth/innerHeight, 0.1, 150);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ─── Lights ───
+scene.add(new THREE.AmbientLight(0x1a1a3a, 0.6));
+const dirLight = new THREE.DirectionalLight(0xaabbdd, 0.25);
+dirLight.position.set(5, 15, 8);
+scene.add(dirLight);
+
+// ─── Grid config ───
+const SP = 3;                       // spacing between cells
+const CENTER = new THREE.Vector3(SP * 1.5, 0, SP * 1.5);  // grid center
+
+function cellPos(idx) {
+  const n = idx - 1;
+  return new THREE.Vector3((n % 4) * SP, 0, ((n / 4) | 0) * SP);
+}
+function ease(t) { return t < .5 ? 2*t*t : -1+(4-2*t)*t; }
+
+// ─── Sequences ───
+const SEQUENCES = [
+  { cells:[10,6,7,11,10],
+    color:0x1e8cff, hue:[30,140,255], glow:[50,180,255], particle:[120,220,255], core:[220,245,255] },
+  { cells:[10,6,10,7,11,6,10,9,10,14,10],
+    color:0xff8c1a, hue:[255,140,30], glow:[255,180,50], particle:[255,200,80], core:[255,240,200] },
+  { cells:[10,13,10,6,7,3,4,8,7,11,6,1,2,5,6,10,11,12,16,15,10],
+    color:0xffdd22, hue:[255,220,30], glow:[255,240,60], particle:[255,245,120], core:[255,255,220] },
+  { cells:[10,6,7,11,10,7,6,11,7,3,6,5,1,2,6,10,14,13,10,7,4,8,12,16,11,10,10],
+    color:0x22dd66, hue:[30,220,80], glow:[60,255,100], particle:[100,255,140], core:[210,255,220] }
+];
+
+// ─── Timing ───
+const HOLD_T=600, MOVE_T=500, PULSE_T=500, PAUSE_T=1500, FADEOUT_T=800;
+
+// ═══════════════════════════════════════
+//   BUILD THE GRID
+// ═══════════════════════════════════════
+
+// --- Cell frames (thin border rectangles) ---
+const FRAME_SZ = 0.48;   // half-size of cell border
+const BORDER_W = 0.035;
+const cellFrames = [];
+
+for (let i = 1; i <= 16; i++) {
+  const p = cellPos(i);
+  const baseMat = () => new THREE.MeshPhongMaterial({
+    color: 0x3a4a80, emissive: 0x0a1030, emissiveIntensity: 0.2,
+    transparent: true, opacity: 0.45
+  });
+
+  const edges = [];
+  // Top / Bottom
+  const hGeo = new THREE.BoxGeometry(FRAME_SZ*2, 0.025, BORDER_W);
+  const tM = new THREE.Mesh(hGeo, baseMat());
+  tM.position.set(p.x, 0.013, p.z - FRAME_SZ); scene.add(tM); edges.push(tM);
+  const bM = new THREE.Mesh(hGeo.clone(), baseMat());
+  bM.position.set(p.x, 0.013, p.z + FRAME_SZ); scene.add(bM); edges.push(bM);
+  // Left / Right
+  const vGeo = new THREE.BoxGeometry(BORDER_W, 0.025, FRAME_SZ*2);
+  const lM = new THREE.Mesh(vGeo, baseMat());
+  lM.position.set(p.x - FRAME_SZ, 0.013, p.z); scene.add(lM); edges.push(lM);
+  const rM = new THREE.Mesh(vGeo.clone(), baseMat());
+  rM.position.set(p.x + FRAME_SZ, 0.013, p.z); scene.add(rM); edges.push(rM);
+
+  // Ground glow disc
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x1e8cff, transparent: true, opacity: 0, side: THREE.DoubleSide
+  });
+  const glowMesh = new THREE.Mesh(new THREE.CircleGeometry(FRAME_SZ*2.5, 32), glowMat);
+  glowMesh.rotation.x = -Math.PI/2;
+  glowMesh.position.set(p.x, 0.003, p.z);
+  scene.add(glowMesh);
+
+  cellFrames.push({ edges, glowMat });
+}
+
+// --- Cell symbols (canvas → sprite) ---
+const SYMBOLS = ['B','C','+','=','A','2','3','−','□','1','4','⊙','○','△','☆','☾'];
+const cellSprites = [];
+
+for (let i = 1; i <= 16; i++) {
+  const p = cellPos(i);
+  const cv = document.createElement('canvas');
+  cv.width = 128; cv.height = 128;
+  const c = cv.getContext('2d');
+
+  // Draw symbol
+  c.fillStyle = 'rgba(180,200,230,0.9)';
+  c.strokeStyle = 'rgba(180,200,230,0.9)';
+  c.lineWidth = 3;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+
+  const sym = SYMBOLS[i-1];
+  const cx = 64, cy = 66, s = 30;
+
+  // Special drawing for geometric symbols
+  if (sym === '+') {
+    c.beginPath(); c.moveTo(cx-s,cy); c.lineTo(cx+s,cy); c.moveTo(cx,cy-s); c.lineTo(cx,cy+s); c.stroke();
+  } else if (sym === '=') {
+    c.beginPath(); c.moveTo(cx-s*0.8,cy-8); c.lineTo(cx+s*0.8,cy-8); c.moveTo(cx-s*0.8,cy+8); c.lineTo(cx+s*0.8,cy+8); c.stroke();
+  } else if (sym === '−') {
+    c.beginPath(); c.moveTo(cx-s*0.8,cy); c.lineTo(cx+s*0.8,cy); c.stroke();
+  } else if (sym === '□') {
+    c.strokeRect(cx-s*0.6, cy-s*0.6, s*1.2, s*1.2);
+  } else if (sym === '○') {
+    c.beginPath(); c.arc(cx,cy,s*0.75,0,Math.PI*2); c.stroke();
+  } else if (sym === '⊙') {
+    c.beginPath(); c.arc(cx,cy,s*0.75,0,Math.PI*2); c.stroke();
+    c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill();
+  } else if (sym === '△') {
+    const r = s*0.85;
+    c.beginPath(); c.moveTo(cx, cy-r); c.lineTo(cx+r*0.87, cy+r*0.5); c.lineTo(cx-r*0.87, cy+r*0.5); c.closePath(); c.stroke();
+  } else if (sym === '☆') {
+    const or_ = s*0.9, ir_ = or_*0.38;
+    c.beginPath();
+    for (let j=0; j<10; j++) {
+      const ang = -Math.PI/2 + j*Math.PI/5;
+      const r = j%2 ? ir_ : or_;
+      c[j?'lineTo':'moveTo'](cx+Math.cos(ang)*r, cy+Math.sin(ang)*r);
+    }
+    c.closePath(); c.stroke();
+  } else if (sym === '☾') {
+    const mr=s*0.75, off=mr*0.4, ir=mr*0.75;
+    const xi=(ir*ir-mr*mr-off*off)/(2*off);
+    const yi2=mr*mr-xi*xi;
+    if (yi2>0) {
+      const yi=Math.sqrt(yi2);
+      c.beginPath();
+      c.arc(cx,cy,mr,Math.atan2(-yi,xi),Math.atan2(yi,xi),false);
+      c.arc(cx-off,cy,ir,Math.atan2(yi,xi+off),Math.atan2(-yi,xi+off),true);
+      c.closePath(); c.fill();
+    }
+  } else {
+    // Letters and numbers
+    c.font = (sym.length === 1 && /[A-Z]/.test(sym))
+      ? '600 68px Georgia,serif'
+      : '700 72px Helvetica Neue,Arial,sans-serif';
+    c.fillText(sym, cx, cy);
+  }
+
+  const tex = new THREE.CanvasTexture(cv);
+  const spMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.5 });
+  const sprite = new THREE.Sprite(spMat);
+  sprite.position.set(p.x, 0.42, p.z);
+  sprite.scale.set(0.65, 0.65, 0.65);
+  scene.add(sprite);
+  cellSprites.push(sprite);
+}
+
+// --- Grid connector lines ---
+const connMat = new THREE.MeshBasicMaterial({ color: 0x2a2a5a, transparent: true, opacity: 0.09 });
+for (let r = 0; r < 4; r++) for (let col = 0; col < 4; col++) {
+  const i = r*4 + col + 1, p = cellPos(i);
+  if (col < 3) {
+    const n = cellPos(i+1);
+    const len = SP - FRAME_SZ*2;
+    const geo = new THREE.CylinderGeometry(0.012, 0.012, len, 4);
+    geo.rotateZ(Math.PI/2);
+    const m = new THREE.Mesh(geo, connMat);
+    m.position.set((p.x+n.x)/2, 0.008, p.z);
+    m.rotation.y = Math.PI/2;
+    scene.add(m);
+  }
+  if (r < 3) {
+    const n = cellPos(i+4);
+    const len = SP - FRAME_SZ*2;
+    const geo = new THREE.CylinderGeometry(0.012, 0.012, len, 4);
+    const m = new THREE.Mesh(geo, connMat);
+    m.position.set(p.x, 0.008, (p.z+n.z)/2);
+    scene.add(m);
+  }
+}
+
+// ═══════════════════════════════════════
+//   PARTICLE  (glowing orb, V3 style)
+// ═══════════════════════════════════════
+
+// Glow texture (radial gradient)
+function makeGlowTex(sz) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = sz;
+  const c = cv.getContext('2d');
+  const g = c.createRadialGradient(sz/2,sz/2,0,sz/2,sz/2,sz/2);
+  g.addColorStop(0,'rgba(255,255,255,1)');
+  g.addColorStop(0.15,'rgba(255,255,255,0.7)');
+  g.addColorStop(0.4,'rgba(255,255,255,0.25)');
+  g.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0,0,sz,sz);
+  return new THREE.CanvasTexture(cv);
+}
+const glowTex = makeGlowTex(128);
+
+// Main particle sprite
+const particleMat = new THREE.SpriteMaterial({
+  map: glowTex, transparent: true, opacity: 0,
+  color: 0x78dcff, blending: THREE.AdditiveBlending
+});
+const particleSprite = new THREE.Sprite(particleMat);
+particleSprite.scale.set(2.2, 2.2, 2.2);
+particleSprite.visible = false;
+scene.add(particleSprite);
+
+// Core (small bright sphere at center)
+const coreGeo = new THREE.SphereGeometry(0.06, 12, 12);
+const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+coreMesh.visible = false;
+scene.add(coreMesh);
+
+// Point light that follows particle
+const particleLight = new THREE.PointLight(0x78dcff, 2.0, 8);
+particleLight.position.y = 1;
+scene.add(particleLight);
+
+// ─── Trail (glowing sprites behind particle) ───
+const TRAIL_LEN = 14;
+const trailSprites = [];
+for (let i = 0; i < TRAIL_LEN; i++) {
+  const m = new THREE.SpriteMaterial({
+    map: glowTex, transparent: true, opacity: 0,
+    color: 0x78dcff, blending: THREE.AdditiveBlending
+  });
+  const sp = new THREE.Sprite(m);
+  sp.visible = false;
+  scene.add(sp);
+  trailSprites.push(sp);
+}
+let trail = [];
+
+// ═══════════════════════════════════════
+//   PERSISTENT PATH LINES (V3 neon)
+// ═══════════════════════════════════════
+const pathGroup = new THREE.Group();
+scene.add(pathGroup);
+let pathSegments = [];
+let lineOpacity = 1;
+
+// Build all completed path lines as 3D tube-like line pairs
+function rebuildPathLines(hexColor) {
+  // Clear old
+  while (pathGroup.children.length) {
+    const c = pathGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    pathGroup.remove(c);
+  }
+  if (!pathSegments.length) return;
+
+  for (let i = 0; i < pathSegments.length; i++) {
+    const seg = pathSegments[i];
+    const a = cellPos(seg.from), b = cellPos(seg.to);
+    const age = 1 - i / (pathSegments.length + 5);
+    const alpha = lineOpacity * (0.3 + 0.4 * age);
+
+    // We build a thin tube for glow and a thinner one for core
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const len = dir.length();
+    dir.normalize();
+    const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+    mid.y = 0.1;
+
+    // Glow tube
+    const gGeo = new THREE.CylinderGeometry(0.04, 0.04, len, 6);
+    const gMat = new THREE.MeshBasicMaterial({
+      color: hexColor, transparent: true, opacity: alpha * 0.3
+    });
+    const gMesh = new THREE.Mesh(gGeo, gMat);
+    gMesh.position.copy(mid);
+    // Orient along direction
+    const axis = new THREE.Vector3(0,1,0);
+    const quat = new THREE.Quaternion();
+    const segDir = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+    // We need to rotate from Y-axis to the segment direction (in XZ plane)
+    const angle = Math.atan2(segDir.x, segDir.z);
+    gMesh.rotation.set(0, 0, 0);
+    gMesh.rotation.y = angle;
+    gMesh.rotation.z = Math.PI/2;
+    // Actually, let's use a simpler approach: lookAt
+    gMesh.position.copy(mid);
+    // CylinderGeometry is along Y. We need to orient it along the segment.
+    // Let's compute properly:
+    const up = new THREE.Vector3(0,1,0);
+    const segVec = new THREE.Vector3().subVectors(b, a);
+    segVec.y = 0; // keep it flat
+    gMesh.quaternion.setFromUnitVectors(up, segVec.clone().normalize());
+    gMesh.position.set(mid.x, 0.1, mid.z);
+    pathGroup.add(gMesh);
+
+    // Core tube (thinner, brighter)
+    const cGeo = new THREE.CylinderGeometry(0.015, 0.015, len, 6);
+    const cMat = new THREE.MeshBasicMaterial({
+      color: hexColor, transparent: true, opacity: alpha * 0.85
+    });
+    const cMesh = new THREE.Mesh(cGeo, cMat);
+    cMesh.quaternion.copy(gMesh.quaternion);
+    cMesh.position.set(mid.x, 0.12, mid.z);
+    pathGroup.add(cMesh);
+  }
+}
+
+// ─── Active segment (line being drawn right now) ───
+const activeGroup = new THREE.Group();
+scene.add(activeGroup);
+
+function updateActiveSegment(fromCell, toCell, progress, hexColor) {
+  while (activeGroup.children.length) {
+    const c = activeGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    activeGroup.remove(c);
+  }
+  if (fromCell === toCell) return;
+
+  const a = cellPos(fromCell), b = cellPos(toCell);
+  const et = ease(progress);
+  const ex = a.x + (b.x - a.x) * et;
+  const ez = a.z + (b.z - a.z) * et;
+
+  const segVec = new THREE.Vector3(ex - a.x, 0, ez - a.z);
+  const len = segVec.length();
+  if (len < 0.01) return;
+
+  const mid = new THREE.Vector3((a.x + ex)/2, 0.1, (a.z + ez)/2);
+  const up = new THREE.Vector3(0,1,0);
+  const quat = new THREE.Quaternion().setFromUnitVectors(up, segVec.normalize());
+
+  // Glow
+  const gGeo = new THREE.CylinderGeometry(0.045, 0.045, len, 6);
+  const gMat = new THREE.MeshBasicMaterial({ color: hexColor, transparent: true, opacity: 0.25 });
+  const gMesh = new THREE.Mesh(gGeo, gMat);
+  gMesh.quaternion.copy(quat);
+  gMesh.position.copy(mid);
+  activeGroup.add(gMesh);
+
+  // Core
+  const cGeo = new THREE.CylinderGeometry(0.018, 0.018, len, 6);
+  const cMat = new THREE.MeshBasicMaterial({ color: hexColor, transparent: true, opacity: 0.7 });
+  const cMesh = new THREE.Mesh(cGeo, cMat);
+  cMesh.quaternion.copy(quat);
+  cMesh.position.set(mid.x, 0.12, mid.z);
+  activeGroup.add(cMesh);
+}
+
+// ═══════════════════════════════════════
+//   STATE MACHINE (identical to V3)
+// ═══════════════════════════════════════
+const glowArr = new Float32Array(16);
+let seqIdx = 0, step = 0, phase = 'fadein', pt = 0;
+let curSeq = SEQUENCES[0];
+let fc = 0;
+
+function nextStep(now) {
+  const seq = SEQUENCES[seqIdx];
+  const from = seq.cells[step], to = seq.cells[step+1];
+  if (from !== to) {
+    pathSegments.push({ from, to });
+    rebuildPathLines(curSeq.color);
+  }
+  step++;
+  if (step >= seq.cells.length - 1) {
+    phase = 'fadeout'; pt = now; trail = [];
+  } else {
+    phase = 'hold'; pt = now;
+  }
+}
+
+// ═══════════════════════════════════════
+//   ANIMATION LOOP
+// ═══════════════════════════════════════
+let t0 = 0;
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  if (!t0) { t0 = now; pt = now; }
+  const el = now - pt;
+
+  // ─── Camera orbit ───
+  const camT = now * 0.00007;
+  const camR = 14;
+  camera.position.x = CENTER.x + Math.cos(camT) * camR;
+  camera.position.z = CENTER.z + Math.sin(camT) * camR;
+  camera.position.y = 7.5 + Math.sin(camT * 0.5) * 2;
+  camera.lookAt(CENTER.x, 0.2, CENTER.z);
+
+  // ─── Reset per-frame ───
+  glowArr.fill(0);
+  let showParticle = false;
+  let px = 0, pz = 0;
+
+  const seq = SEQUENCES[seqIdx];
+  curSeq = seq;
+
+  // Clear active segment
+  while (activeGroup.children.length) {
+    const c = activeGroup.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    activeGroup.remove(c);
+  }
+
+  // ─── Phase logic ───
+  if (phase === 'fadeout') {
+    const t = Math.min(1, el / FADEOUT_T);
+    lineOpacity = 1 - ease(t);
+    rebuildPathLines(curSeq.color);
+    const cur = seq.cells[step];
+    glowArr[cur-1] = (1-t) * 0.6;
+    // Keep particle visible but fading
+    const cp = cellPos(cur);
+    showParticle = true; px = cp.x; pz = cp.z;
+    particleMat.opacity = (1-t) * 0.7;
+    coreMat.opacity = (1-t) * 0.9;
+
+    if (t >= 1) {
+      phase = 'pause'; pt = now;
+      pathSegments = [];
+      rebuildPathLines(curSeq.color);
+      lineOpacity = 1;
+      particleSprite.visible = false;
+      coreMesh.visible = false;
+    }
+  }
+  else if (phase === 'pause') {
+    particleSprite.visible = false;
+    coreMesh.visible = false;
+    particleLight.intensity = 0;
+    if (el >= PAUSE_T) {
+      seqIdx = (seqIdx+1) % SEQUENCES.length;
+      step = 0; phase = 'fadein'; pt = now;
+      curSeq = SEQUENCES[seqIdx];
+      pathSegments = [];
+      lineOpacity = 1;
+      trail = [];
+    }
+  }
+  else if (phase === 'fadein') {
+    const cur = seq.cells[step];
+    const t = Math.min(1, el / 400);
+    glowArr[cur-1] = ease(t);
+    const cp = cellPos(cur);
+    showParticle = true; px = cp.x; pz = cp.z;
+    particleMat.opacity = ease(t) * 0.7;
+    coreMat.opacity = ease(t) * 0.95;
+    if (t >= 1) { phase = 'hold'; pt = now; }
+  }
+  else if (phase === 'hold') {
+    const cur = seq.cells[step];
+    glowArr[cur-1] = 0.9 + 0.1 * Math.cos(el * .005);
+    const cp = cellPos(cur);
+    showParticle = true; px = cp.x; pz = cp.z;
+    particleMat.opacity = 0.7;
+    coreMat.opacity = 0.95;
+    if (el >= HOLD_T) {
+      const nxt = seq.cells[step+1];
+      if (cur === nxt) { phase = 'pulse'; pt = now; }
+      else { phase = 'flow'; pt = now; trail = []; }
+    }
+  }
+  else if (phase === 'pulse') {
+    const cur = seq.cells[step];
+    const t = Math.min(1, el / PULSE_T);
+    const pulse = Math.sin(t * Math.PI);
+    glowArr[cur-1] = 0.5 + 0.5 * pulse;
+    const cp = cellPos(cur);
+    showParticle = true; px = cp.x; pz = cp.z;
+    particleMat.opacity = (0.4 + 0.3 * pulse);
+    coreMat.opacity = (0.5 + 0.45 * pulse);
+    // Scale pulse
+    const sc = 2.2 + pulse * 0.8;
+    particleSprite.scale.set(sc, sc, sc);
+    if (t >= 1) { particleSprite.scale.set(2.2,2.2,2.2); nextStep(now); }
+  }
+  else if (phase === 'flow') {
+    const cur = seq.cells[step], nxt = seq.cells[step+1];
+    const t = Math.min(1, el / MOVE_T);
+    const et = ease(t);
+
+    glowArr[cur-1] = Math.max(0, 1 - t*1.6);
+    if (t > .55) glowArr[nxt-1] = ease((t-.55)/.45);
+
+    const a = cellPos(cur), b = cellPos(nxt);
+    px = a.x + (b.x - a.x) * et;
+    pz = a.z + (b.z - a.z) * et;
+    showParticle = true;
+    particleMat.opacity = 0.75;
+    coreMat.opacity = 0.95;
+
+    // Trail
+    if (fc % 2 === 0) {
+      trail.unshift({ x: px, z: pz });
+      if (trail.length > TRAIL_LEN) trail.pop();
+    }
+
+    // Active segment
+    updateActiveSegment(cur, nxt, t, curSeq.color);
+
+    if (t >= 1) { trail = []; nextStep(now); }
+  }
+
+  // ─── Update particle visuals ───
+  const pColor = new THREE.Color(curSeq.color);
+  particleMat.color.copy(pColor);
+  coreMat.color.setRGB(
+    curSeq.core[0]/255, curSeq.core[1]/255, curSeq.core[2]/255
+  );
+
+  if (showParticle) {
+    particleSprite.visible = true;
+    coreMesh.visible = true;
+    const py = 0.35 + (phase === 'flow' ? Math.sin(ease(Math.min(1,(now-pt)/MOVE_T)) * Math.PI) * 0.2 : 0);
+    particleSprite.position.set(px, py, pz);
+    coreMesh.position.set(px, py, pz);
+
+    particleLight.position.set(px, py + 0.6, pz);
+    particleLight.color.copy(pColor);
+    particleLight.intensity = 1.8 + Math.sin(now * 0.005) * 0.4;
+  } else {
+    particleSprite.visible = false;
+    coreMesh.visible = false;
+    particleLight.intensity = 0;
+  }
+
+  // ─── Trail sprites ───
+  for (let i = 0; i < TRAIL_LEN; i++) {
+    const sp = trailSprites[i];
+    if (i < trail.length && phase === 'flow') {
+      const tp = trail[i];
+      sp.visible = true;
+      const fade = 1 - i / TRAIL_LEN;
+      sp.position.set(tp.x, 0.25, tp.z);
+      sp.material.color.copy(pColor);
+      sp.material.opacity = fade * 0.35;
+      sp.scale.set(1.2 * fade, 1.2 * fade, 1.2 * fade);
+    } else {
+      sp.visible = false;
+    }
+  }
+
+  // ─── Update cell frames + sprites ───
+  for (let i = 0; i < 16; i++) {
+    const g = glowArr[i];
+    const fr = cellFrames[i];
+    const r = curSeq.glow[0]/255, gr2 = curSeq.glow[1]/255, bl = curSeq.glow[2]/255;
+
+    for (const edge of fr.edges) {
+      if (g > 0.03) {
+        edge.material.color.setRGB(
+          r*g + 0.22*(1-g), gr2*g + 0.18*(1-g), bl*g + 0.32*(1-g)
+        );
+        edge.material.emissive.setRGB(r*g*0.6, gr2*g*0.6, bl*g*0.6);
+        edge.material.emissiveIntensity = g * 0.9;
+        edge.material.opacity = 0.35 + g * 0.65;
+      } else {
+        edge.material.color.setRGB(0.22, 0.29, 0.50);
+        edge.material.emissive.setRGB(0.04, 0.04, 0.12);
+        edge.material.emissiveIntensity = 0.2;
+        edge.material.opacity = 0.40;
+      }
+    }
+
+    // Ground glow
+    fr.glowMat.color.setHex(curSeq.color);
+    fr.glowMat.opacity = g * 0.12;
+
+    // Symbol brightness
+    cellSprites[i].material.opacity = 0.35 + g * 0.65;
+  }
+
+  renderer.render(scene, camera);
+  fc++;
+}
+
+requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
