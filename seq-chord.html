@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Chord Diagram – 12 Sequenze</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#060610; display:flex; flex-direction:column; align-items:center;
+       justify-content:center; min-height:100vh; overflow:hidden; font-family:Arial,sans-serif; }
+canvas { display:block; }
+#legend {
+  position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+  display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
+}
+.leg {
+  display:flex; align-items:center; gap:5px; cursor:pointer;
+  padding:3px 9px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);
+  transition:background 0.2s; font-size:11px; color:rgba(255,255,255,0.7);
+  user-select:none;
+}
+.leg:hover { background:rgba(255,255,255,0.08); }
+.leg.active { border-color:rgba(255,255,255,0.4); color:#fff; }
+.dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+#hint { position:fixed; top:16px; left:50%; transform:translateX(-50%);
+        color:rgba(255,255,255,0.3); font-size:12px; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div id="hint">clicca sulle sequenze per isolarle</div>
+<canvas id="c"></canvas>
+<div id="legend"></div>
+<script>
+const cvs = document.getElementById('c');
+const ctx = cvs.getContext('2d');
+
+const SEQS = [
+  { cells:[10,6,7,11,10],        color:[30,140,255],   name:'S1'  },
+  { cells:[10,6,10,7,11,6,10,9,10,14,10], color:[255,140,30], name:'S2' },
+  { cells:[10,13,10,6,7,3,4,8,7,11,6,1,2,5,6,10,11,12,16,15,10], color:[255,220,30], name:'S3' },
+  { cells:[10,6,7,11,10,7,6,11,7,3,6,5,1,2,6,10,14,13,10,7,4,8,12,16,11,10,10], color:[30,220,80], name:'S4' },
+  { cells:[10,7,6,11,10,7,4,3,8,7,10,6,2,3,7,12,11,15,16,11,12,8,3,4,3,2,7,6,10], color:[140,50,255], name:'S5' },
+  { cells:[10,7,4,3,8,7,2,1,5,6,3,2,7,11,10,15,14,9,10], color:[255,40,160], name:'S6' },
+  { cells:[10,5,2,3,8,11,12,15,16,11,6,1,5,9,13,14,9,10,5,6,7,8,4,7,3,2,6,10], color:[0,210,230], name:'S7' },
+  { cells:[10,6,2,2,2,3,3,2,1,1,1,5,6,7,4,8,7,12,15,11,11,11,6,11,6,11,7,8,11,12,15,11,10], color:[255,50,50], name:'S8' },
+  { cells:[10,6,2,1,5,9,13,14,15,16,12,8,4,3,7,10,13,9,5,1,6,6,3,2,1,5,10,11,15,16,11,6,1,2,6,3,6,11,15,14,11,6,9,5,2,7,4,8,12,15,10,10,10], color:[255,110,150], name:'S9' },
+  { cells:[10,11,6,7,10,11,6,7,4,8,3,7,2,6,1,5,9,14,13,10,9,10,10,11,15,16,12,11,16,15,12,11,10,7,4,3,2,1,6,11,14,13,10,7,8,12,11,10,9,5,6,10], color:[0,190,160], name:'S10' },
+  { cells:[10,9,5,1,6,7,4,3,2,7,12,11,10,9,5,1,6,3,2,7,4,8,11,15,14,11,10,15,14,11,6,3,7,10,13,14,10,11,15,10], color:[160,255,30], name:'S11' },
+  { cells:[10,7,4,3,8,7,2,6,3,2,1,6,5,9,10,13,14,11,15,10], color:[180,190,255], name:'S12' },
+];
+
+const SYMBOLS = {
+  1:'B', 2:'C', 3:'+', 4:'=', 5:'A', 6:'2', 7:'3', 8:'−',
+  9:'□', 10:'1', 11:'4', 12:'⊙', 13:'○', 14:'△', 15:'☆', 16:'🌙'
+};
+
+// Active state: null = all on, else Set of active indices
+let active = new Set(SEQS.map((_,i)=>i));
+
+let W, H, CX, CY, R, nodeR;
+
+function resize() {
+  W = cvs.width  = window.innerWidth;
+  H = cvs.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+  R     = Math.min(W, H) * 0.38;
+  nodeR = Math.min(W, H) * 0.018;
+}
+resize();
+window.addEventListener('resize', () => { resize(); draw(); });
+
+// Node positions — spiral order following 4×4 grid topology (clockwise from top-left)
+// Outer ring: top row → right col → bottom row (reversed) → left col (reversed)
+// Inner ring: 6,7,11,10
+const SPIRAL_ORDER = [1,2,3,4, 8,12,16, 15,14,13, 9,5, 6,7,11,10];
+const CELL_TO_POS = {};
+SPIRAL_ORDER.forEach((cell, i) => CELL_TO_POS[cell] = i);
+
+function nodePos(cell) {
+  const pos = CELL_TO_POS[cell];
+  const angle = (pos / 16) * Math.PI * 2 - Math.PI / 2;
+  return { x: CX + R * Math.cos(angle), y: CY + R * Math.sin(angle) };
+}
+
+// Build transition pairs per sequence
+function getChords(seq) {
+  const chords = [];
+  for (let i = 0; i < seq.cells.length - 1; i++) {
+    const a = seq.cells[i], b = seq.cells[i+1];
+    if (a !== b) chords.push([a, b]);
+  }
+  return chords;
+}
+
+// Cubic bezier control point through center (depth controls how deep it bends)
+function drawChord(ax, ay, bx, by, color, alpha, thickness) {
+  // Midpoint
+  const mx = (ax+bx)/2, my = (ay+by)/2;
+  // Vector from center to midpoint
+  const dcx = mx - CX, dcy = my - CY;
+  const dist = Math.sqrt(dcx*dcx + dcy*dcy);
+  // Pull control point toward center proportional to chord length
+  const pull = 0.35;
+  const cx1 = mx - dcx * pull;
+  const cy1 = my - dcy * pull;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = `rgba(${color[0]},${color[1]},${color[2]},1)`;
+  ctx.lineWidth = thickness;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.quadraticCurveTo(cx1, cy1, bx, by);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Animate: fade chords in sequentially per active sequences
+let t0 = null;
+const CYCLE = 14000; // ms per full cycle
+
+function draw(ts) {
+  if (!ts) ts = 0;
+  if (!t0) t0 = ts;
+  const elapsed = ts - t0;
+  const phase = (elapsed % CYCLE) / CYCLE; // 0→1
+
+  ctx.clearRect(0, 0, W, H);
+
+  // ── Background glow at center ──
+  const bg = ctx.createRadialGradient(CX, CY, 0, CX, CY, R*0.6);
+  bg.addColorStop(0, 'rgba(30,40,80,0.15)');
+  bg.addColorStop(1, 'rgba(6,6,16,0)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Ring ──
+  ctx.save();
+  ctx.strokeStyle = 'rgba(60,80,140,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+
+  // ── Chords ──
+  // Count total chords across active sequences to determine opacity
+  const activeSeqs = SEQS.filter((_,i) => active.has(i));
+  const totalChords = activeSeqs.reduce((s,seq) => s + getChords(seq).length, 0);
+  const baseAlpha = Math.max(0.04, Math.min(0.22, 12 / (totalChords + 1)));
+
+  for (let si = 0; si < SEQS.length; si++) {
+    if (!active.has(si)) continue;
+    const seq = SEQS[si];
+    const chords = getChords(seq);
+    // Animate: each chord fades in as phase progresses
+    for (let ci = 0; ci < chords.length; ci++) {
+      const [a, b] = chords[ci];
+      const pa = nodePos(a), pb = nodePos(b);
+      const reveal = clamp01((phase * chords.length - ci) * 2);
+      const alpha = baseAlpha * reveal;
+      if (alpha < 0.005) continue;
+      drawChord(pa.x, pa.y, pb.x, pb.y, seq.color, alpha, active.size === 1 ? 1.5 : 0.9);
+    }
+  }
+
+  // ── Bright animated particle per active sequence ──
+  for (let si = 0; si < SEQS.length; si++) {
+    if (!active.has(si)) continue;
+    const seq = SEQS[si];
+    const chords = getChords(seq);
+    // Position along the sequence
+    const totalSteps = chords.length;
+    const pos = (phase * totalSteps);
+    const idx = Math.floor(pos) % totalSteps;
+    const frac = pos - Math.floor(pos);
+    const [a, b] = chords[idx];
+    const pa = nodePos(a), pb = nodePos(b);
+    // Interpolate along the chord bezier
+    const mx = (pa.x+pb.x)/2, my = (pa.y+pb.y)/2;
+    const dcx = mx - CX, dcy = my - CY;
+    const pull = 0.35;
+    const cx1 = mx - dcx*pull, cy1 = my - dcy*pull;
+    const t = frac;
+    const px = (1-t)*(1-t)*pa.x + 2*(1-t)*t*cx1 + t*t*pb.x;
+    const py = (1-t)*(1-t)*pa.y + 2*(1-t)*t*cy1 + t*t*pb.y;
+
+    const [r,g,bl] = seq.color;
+    ctx.save();
+    const gr = ctx.createRadialGradient(px,py,0,px,py,nodeR*2.5);
+    gr.addColorStop(0, `rgba(${r},${g},${bl},0.95)`);
+    gr.addColorStop(1, `rgba(${r},${g},${bl},0)`);
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(px,py,nodeR*2.5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(px,py,2,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Node circles ──
+  for (let cell = 1; cell <= 16; cell++) {
+    const p = nodePos(cell);
+
+    // Compute glow: how many active sequences pass through this cell
+    let heat = 0;
+    for (let si = 0; si < SEQS.length; si++) {
+      if (!active.has(si)) continue;
+      if (SEQS[si].cells.includes(cell)) heat++;
+    }
+    const heatFrac = heat / active.size;
+
+    ctx.save();
+    if (heatFrac > 0) {
+      const gr = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,nodeR*4);
+      gr.addColorStop(0, `rgba(120,160,255,${heatFrac*0.2})`);
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.arc(p.x,p.y,nodeR*4,0,Math.PI*2); ctx.fill();
+    }
+    // Ring
+    ctx.strokeStyle = `rgba(100,140,200,${0.3 + heatFrac*0.5})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(p.x,p.y,nodeR,0,Math.PI*2); ctx.stroke();
+    // Symbol
+    ctx.fillStyle = `rgba(180,210,255,${0.5 + heatFrac*0.5})`;
+    const sym = SYMBOLS[cell];
+    const fontSize = sym.length > 1 ? nodeR*0.8 : nodeR*1.1;
+    ctx.font = `500 ${fontSize}px Arial,sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(sym, p.x, p.y);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(draw);
+}
+
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+// ── Legend ──
+const legDiv = document.getElementById('legend');
+SEQS.forEach((seq, i) => {
+  const el = document.createElement('div');
+  el.className = 'leg active';
+  el.innerHTML = `<div class="dot" style="background:rgb(${seq.color.join(',')})"></div>${seq.name}`;
+  el.addEventListener('click', () => {
+    if (active.has(i)) {
+      if (active.size > 1) { active.delete(i); el.classList.remove('active'); }
+    } else {
+      active.add(i); el.classList.add('active');
+    }
+  });
+  legDiv.appendChild(el);
+});
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

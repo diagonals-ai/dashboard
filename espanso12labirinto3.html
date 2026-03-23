@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Espanso 12 – Percorsi Frequenti (sincrone)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060610;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden}
+canvas{display:block}
+</style>
+</head>
+<body><canvas id="c"></canvas>
+<script>
+(() => {
+const cvs=document.getElementById('c');
+const ctx=cvs.getContext('2d');
+let W,H,S,CX,CY;
+function resize(){W=cvs.width=window.innerWidth;H=cvs.height=window.innerHeight;S=Math.min(W,H)*0.96;CX=W/2;CY=H/2;}
+resize();window.addEventListener('resize',resize);
+function ease(t){return t<.5?2*t*t:-1+(4-2*t)*t;}
+
+// ─── Sequences ───────────────────────────────────────────────────────────────
+const SEQUENCES=[
+  {cells:[10,6,7,11,10],hue:[30,140,255],glow:[50,180,255],particle:[120,220,255],core:[220,245,255]},
+  {cells:[10,6,10,7,11,6,10,9,10,14,10],hue:[255,140,30],glow:[255,180,50],particle:[255,200,80],core:[255,240,200]},
+  {cells:[10,13,10,6,7,3,4,8,7,11,6,1,2,5,6,10,11,12,16,15,10],hue:[255,220,30],glow:[255,240,60],particle:[255,245,120],core:[255,255,220]},
+  {cells:[10,6,7,11,10,7,6,11,7,3,6,5,1,2,6,10,14,13,10,7,4,8,12,16,11,10,10],hue:[30,220,80],glow:[60,255,100],particle:[100,255,140],core:[210,255,220]},
+  {cells:[10,7,6,11,10,7,4,3,8,7,10,6,2,3,7,12,11,15,16,11,12,8,3,4,3,2,7,6,10],hue:[140,50,255],glow:[160,80,255],particle:[190,140,255],core:[230,215,255]},
+  {cells:[10,7,4,3,8,7,2,1,5,6,3,2,7,11,10,15,14,9,10],hue:[255,40,160],glow:[255,70,180],particle:[255,130,210],core:[255,215,240]},
+  {cells:[10,5,2,3,8,11,12,15,16,11,6,1,5,9,13,14,9,10,5,6,7,8,4,7,3,2,6,10],hue:[0,210,230],glow:[30,235,250],particle:[100,250,255],core:[200,255,255]},
+  {cells:[10,6,2,2,2,3,3,2,1,1,1,5,6,7,4,8,7,12,15,11,11,11,6,11,6,11,7,8,11,12,15,11,10],hue:[255,50,50],glow:[255,80,70],particle:[255,140,120],core:[255,220,210]},
+  {cells:[10,6,2,1,5,9,13,14,15,16,12,8,4,3,7,10,13,9,5,1,6,6,3,2,1,5,10,11,15,16,11,6,1,2,6,3,6,11,15,14,11,6,9,5,2,7,4,8,12,15,10,10,10],hue:[255,110,150],glow:[255,140,170],particle:[255,180,200],core:[255,230,240]},
+  {cells:[10,11,6,7,10,11,6,7,4,8,3,7,2,6,1,5,9,14,13,10,9,10,10,11,15,16,12,11,16,15,12,11,10,7,4,3,2,1,6,11,14,13,10,7,8,12,11,10,9,5,6,10],hue:[0,190,160],glow:[30,220,190],particle:[90,245,225],core:[200,255,248]},
+  {cells:[10,9,5,1,6,7,4,3,2,7,12,11,10,9,5,1,6,3,2,7,4,8,11,15,14,11,10,15,14,11,6,3,7,10,13,14,10,11,15,10],hue:[160,255,30],glow:[180,255,65],particle:[210,255,130],core:[235,255,215]},
+  {cells:[10,7,4,3,8,7,2,6,3,2,1,6,5,9,10,13,14,11,15,10],hue:[180,190,255],glow:[200,210,255],particle:[220,225,255],core:[245,248,255]}
+];
+const HOLD_T=600,MOVE_T=500,PULSE_T=500,PAUSE_T=800,FADEOUT_T=600;
+const START_OFFS=Array.from({length:12},()=>0); // tutte sincrone
+let T0=null,NOW=0;
+function makeState(){return{step:0,phase:'waiting',pt:0,glow:new Float32Array(16),lineOpacity:1};}
+const states=Array.from({length:12},makeState);
+
+// ─── drawSym (identical to palinsesto — indici 1-based) ─────────────────────
+function drawSym(idx,cx,cy,sz,a){
+  ctx.save();
+  const col=`rgba(180,200,230,${a})`;ctx.fillStyle=col;ctx.strokeStyle=col;
+  ctx.lineWidth=Math.max(0.6,sz*0.06);ctx.lineCap='round';ctx.lineJoin='round';
+  const s=sz*0.6,numMap={10:'1',6:'2',7:'3',11:'4'};
+  switch(idx){
+    case 1:case 2:case 5:{const ch=idx===1?'B':idx===2?'C':'A';ctx.font=`600 ${sz*1.1}px Georgia,serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(ch,cx,cy+sz*0.03);}break;
+    case 6:case 7:case 10:case 11:{ctx.font=`700 ${sz*1.15}px Arial,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(numMap[idx],cx,cy+sz*0.04);}break;
+    case 3:ctx.beginPath();ctx.moveTo(cx-s*.5,cy);ctx.lineTo(cx+s*.5,cy);ctx.moveTo(cx,cy-s*.5);ctx.lineTo(cx,cy+s*.5);ctx.stroke();break;
+    case 4:ctx.beginPath();ctx.moveTo(cx-s*.4,cy-s*.16);ctx.lineTo(cx+s*.4,cy-s*.16);ctx.moveTo(cx-s*.4,cy+s*.16);ctx.lineTo(cx+s*.4,cy+s*.16);ctx.stroke();break;
+    case 8:ctx.beginPath();ctx.moveTo(cx-s*.4,cy);ctx.lineTo(cx+s*.4,cy);ctx.stroke();break;
+    case 9:{const h=s*.3;ctx.strokeRect(cx-h,cy-h,h*2,h*2);}break;
+    case 12:ctx.beginPath();ctx.arc(cx,cy,s*.38,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(cx,cy,1.5,0,Math.PI*2);ctx.fill();break;
+    case 13:ctx.beginPath();ctx.arc(cx,cy,s*.38,0,Math.PI*2);ctx.stroke();break;
+    case 14:{const r=s*.4;ctx.beginPath();ctx.moveTo(cx,cy-r);ctx.lineTo(cx+r*.87,cy+r*.5);ctx.lineTo(cx-r*.87,cy+r*.5);ctx.closePath();ctx.stroke();}break;
+    case 15:{const or_=s*.42,ir_=or_*.38;ctx.beginPath();for(let i=0;i<10;i++){const ang=-Math.PI/2+i*Math.PI/5,r=i%2?ir_:or_;ctx[i?'lineTo':'moveTo'](cx+Math.cos(ang)*r,cy+Math.sin(ang)*r);}ctx.closePath();ctx.stroke();}break;
+    case 16:{const mr=s*.38,off=mr*.4,ir=mr*.75;const xi=(ir*ir-mr*mr-off*off)/(2*off),yi2=mr*mr-xi*xi;if(yi2>0){const yi=Math.sqrt(yi2);ctx.beginPath();ctx.arc(cx,cy,mr,Math.atan2(-yi,xi),Math.atan2(yi,xi),false);ctx.arc(cx-off,cy,ir,Math.atan2(yi,xi+off),Math.atan2(-yi,xi+off),true);ctx.closePath();ctx.fill();}}break;
+  }
+  ctx.restore();
+}
+
+// ─── State machine ───────────────────────────────────────────────────────────
+function advanceStep(fi,now){
+  const seq=SEQUENCES[fi],st=states[fi];st.step++;
+  if(st.step>=seq.cells.length-1){st.phase='fadeout';st.pt=now;}
+  else{st.phase='hold';st.pt=now;}
+}
+function updatePhase(fi,now){
+  const seq=SEQUENCES[fi],st=states[fi],el=now-st.pt;st.glow.fill(0);
+  if(st.phase==='fadeout'){const t=Math.min(1,el/FADEOUT_T);st.lineOpacity=1-ease(t);st.glow[seq.cells[st.step]-1]=(1-t)*0.6;if(t>=1){st.phase='pause';st.pt=now;st.lineOpacity=1;}}
+  else if(st.phase==='pause'){if(el>=PAUSE_T){st.step=0;st.phase='fadein';st.pt=now;st.lineOpacity=1;}}
+  else if(st.phase==='fadein'){const cur=seq.cells[st.step],t=Math.min(1,el/300);st.glow[cur-1]=ease(t);if(t>=1){st.phase='hold';st.pt=now;}}
+  else if(st.phase==='hold'){const cur=seq.cells[st.step];st.glow[cur-1]=0.9+0.1*Math.cos(el*.005);if(el>=HOLD_T){const nxt=seq.cells[st.step+1];if(cur===nxt){st.phase='pulse';st.pt=now;}else{st.phase='flow';st.pt=now;}}}
+  else if(st.phase==='pulse'){const cur=seq.cells[st.step],t=Math.min(1,el/PULSE_T);st.glow[cur-1]=0.5+0.5*Math.sin(t*Math.PI);if(t>=1)advanceStep(fi,now);}
+  else if(st.phase==='flow'){const cur=seq.cells[st.step],nxt=seq.cells[st.step+1],t=Math.min(1,el/MOVE_T);st.glow[cur-1]=Math.max(0,1-t*1.6);if(t>.55)st.glow[nxt-1]=ease((t-.55)/.45);if(t>=1)advanceStep(fi,now);}
+}
+
+// ─── Grid geometry (IDENTICA al palinsesto) ──────────────────────────────────
+function gridGeom(){
+  const gs=S*0.72, cs=gs/3, bx=cs*0.16;
+  const ox=CX-cs*1.5, oy=CY-cs*1.5;
+  return{cs,bx,ox,oy};
+}
+function xyL(ci){
+  const{cs,ox,oy}=gridGeom(),n=ci-1;
+  return{x:ox+(n%4)*cs, y:oy+((n/4)|0)*cs};
+}
+
+// ─── cellBlend (identica al palinsesto, con hue separata) ───────────────────
+function cellBlend(cellIdx){
+  let sumR=0,sumG=0,sumB=0,sumHR=0,sumHG=0,sumHB=0,totalW=0,maxG=0;
+  for(let fi=0;fi<12;fi++){
+    const gv=states[fi].glow[cellIdx-1];if(gv<0.01)continue;
+    const cg=SEQUENCES[fi].glow,ch=SEQUENCES[fi].hue;
+    sumR+=cg[0]*gv;sumG+=cg[1]*gv;sumB+=cg[2]*gv;
+    sumHR+=ch[0]*gv;sumHG+=ch[1]*gv;sumHB+=ch[2]*gv;
+    totalW+=gv;if(gv>maxG)maxG=gv;
+  }
+  if(!totalW)return null;
+  const inv=1/totalW;
+  return{
+    r:Math.min(255,Math.round(sumR*inv)),g:Math.min(255,Math.round(sumG*inv)),b:Math.min(255,Math.round(sumB*inv)),
+    hr:Math.min(255,Math.round(sumHR*inv)),hg:Math.min(255,Math.round(sumHG*inv)),hb:Math.min(255,Math.round(sumHB*inv)),
+    a:maxG, total:Math.min(1,totalW*0.35)
+  };
+}
+
+// ─── Outer cell activity (per dodecagram) ───────────────────────────────────
+const OUTER=[1,2,3,4,8,12,16,15,14,13,9,5];
+const STAR_PATH=[0,5,10,3,8,1,6,11,4,9,2,7];
+
+function outerActivity(outerIdx){
+  const cell=OUTER[outerIdx];
+  let maxG=0,r=0,g=0,b=0,w=0;
+  for(let fi=0;fi<12;fi++){
+    const gv=states[fi].glow[cell-1];
+    if(gv>0.01){const c=SEQUENCES[fi].glow;r+=c[0]*gv;g+=c[1]*gv;b+=c[2]*gv;w+=gv;if(gv>maxG)maxG=gv;}
+  }
+  if(!w)return null;
+  return{r:Math.min(255,Math.round(r/w)),g:Math.min(255,Math.round(g/w)),b:Math.min(255,Math.round(b/w)),a:maxG};
+}
+
+// ─── Dodecagram (identico al palinsesto, con segmenti attivi) ────────────────
+function drawDodecagram(now){
+  const verts=OUTER.map(xyL);
+  const{bx}=gridGeom();
+  // Stella di base (dim)
+  ctx.save();
+  ctx.strokeStyle='rgba(80,100,160,0.055)';ctx.lineWidth=0.8;
+  ctx.beginPath();
+  for(let k=0;k<12;k++){const v=verts[STAR_PATH[k]];k===0?ctx.moveTo(v.x,v.y):ctx.lineTo(v.x,v.y);}
+  ctx.closePath();ctx.stroke();ctx.restore();
+  // Segmenti attivi
+  const pulse=0.5+0.5*Math.sin(now*0.004);
+  for(let k=0;k<12;k++){
+    const ai=STAR_PATH[k],bi=STAR_PATH[(k+1)%12];
+    const actA=outerActivity(ai),actB=outerActivity(bi);
+    if(!actA&&!actB)continue;
+    const a=verts[ai],b=verts[bi];
+    const strength=Math.max(actA?actA.a:0,actB?actB.a:0);
+    const blR=actA&&actB?Math.round((actA.r+actB.r)/2):actA?actA.r:actB.r;
+    const blG=actA&&actB?Math.round((actA.g+actB.g)/2):actA?actA.g:actB.g;
+    const blB=actA&&actB?Math.round((actA.b+actB.b)/2):actA?actA.b:actB.b;
+    ctx.save();ctx.filter=`blur(5px)`;
+    ctx.strokeStyle=`rgba(${blR},${blG},${blB},${strength*0.35*pulse})`;ctx.lineWidth=6;
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();
+    ctx.strokeStyle=`rgba(${blR},${blG},${blB},${strength*0.55})`;ctx.lineWidth=1.2;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    // Vertex halos
+    for(const[vi,act] of [[ai,actA],[bi,actB]]){
+      if(!act)continue;
+      const vp=verts[vi];
+      ctx.save();ctx.filter=`blur(8px)`;
+      ctx.fillStyle=`rgba(${act.r},${act.g},${act.b},${act.a*0.35})`;
+      ctx.beginPath();ctx.arc(vp.x,vp.y,bx*4,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+  }
+}
+
+// ─── Hub (identico al palinsesto) ───────────────────────────────────────────
+function drawHub(now){
+  const pulse=0.5+0.5*Math.sin(now*0.0025);
+  const{cs,bx}=gridGeom();
+  const INNER=[6,7,10,11];
+  for(const ci of INNER){
+    const bl=cellBlend(ci);if(!bl||bl.a<0.02)continue;
+    const p=xyL(ci);
+    ctx.save();ctx.filter=`blur(20px)`;
+    ctx.fillStyle=`rgba(${bl.hr},${bl.hg},${bl.hb},${bl.a*0.2})`;
+    ctx.beginPath();ctx.arc(p.x,p.y,bx*6,0,Math.PI*2);ctx.fill();ctx.restore();
+  }
+  const p6=xyL(6),p7=xyL(7),p10=xyL(10),p11=xyL(11);
+  const hpad=cs*0.5;
+  const hx=Math.min(p6.x,p7.x,p10.x,p11.x)-hpad;
+  const hy=Math.min(p6.y,p7.y,p10.y,p11.y)-hpad;
+  const hw=cs+hpad*2,hh=cs+hpad*2;
+  ctx.save();ctx.strokeStyle=`rgba(200,180,100,${0.06*pulse+0.04})`;ctx.lineWidth=0.8;
+  ctx.strokeRect(hx,hy,hw,hh);ctx.restore();
+}
+
+// ─── Particle position ───────────────────────────────────────────────────────
+function particlePos(fi){
+  const seq=SEQUENCES[fi],st=states[fi];
+  if(st.phase!=='flow')return null;
+  const el=NOW-st.pt,t=Math.min(1,el/MOVE_T);
+  const a=xyL(seq.cells[st.step]),b=xyL(seq.cells[st.step+1]);
+  const et=ease(t);
+  return{x:a.x+(b.x-a.x)*et, y:a.y+(b.y-a.y)*et};
+}
+
+// ─── PERCORSI FREQUENTI: contatore cumulativo per edge ───────────────────────
+// Decadimento lentissimo (0.9998/frame) → mostra frequenza strutturale
+// Rampa termica: blu(raro) → ciano → verde → giallo → rosso(frequente)
+const edgeCount=new Float32Array(16*16);
+const cellHeat=new Float32Array(16);
+let edgeMax=0.001;
+function edgeKey(a,b){return Math.min(a,b)*16+Math.max(a,b);}
+
+function thermalColor(t){
+  // 0=blu puro → 0.25=ciano → 0.5=verde → 0.75=giallo → 1=rosso
+  t=Math.max(0,Math.min(1,t));
+  if(t<0.25){const u=t*4;return[0,Math.round(u*255),255];}
+  if(t<0.5){const u=(t-0.25)*4;return[0,255,Math.round((1-u)*255)];}
+  if(t<0.75){const u=(t-0.5)*4;return[Math.round(u*255),255,0];}
+  const u=(t-0.75)*4;return[255,Math.round((1-u)*255),0];
+}
+
+function updateHeat(){
+  for(let i=0;i<edgeCount.length;i++)edgeCount[i]*=0.9998;
+  for(let i=0;i<16;i++)cellHeat[i]*=0.9990;
+  edgeMax=0.001;
+  for(let fi=0;fi<12;fi++){
+    const st=states[fi],seq=SEQUENCES[fi];
+    if(st.phase==='waiting')continue;
+    const curG=st.glow.reduce((mx,v)=>Math.max(mx,v),0);
+    if(curG>0.05){
+      const ci=seq.cells[st.step]-1;
+      cellHeat[ci]=Math.min(2,cellHeat[ci]+0.010);
+    }
+    if((st.phase==='flow'||st.phase==='hold')&&st.step>0){
+      const a=seq.cells[st.step]-1,b=seq.cells[Math.max(0,st.step-1)]-1;
+      if(a!==b){
+        const k=edgeKey(a,b);
+        // Incremento fisso per contare passaggi indipendentemente dalla forza
+        edgeCount[k]+=0.008;
+      }
+    }
+  }
+  // Trovare il massimo per normalizzazione
+  for(let i=0;i<edgeCount.length;i++)if(edgeCount[i]>edgeMax)edgeMax=edgeCount[i];
+}
+
+// ─── PERCORSI FREQUENTI: disegna edge con colore termico e spessore proporzionale ──
+function drawEdges(){
+  const{bx}=gridGeom();
+  for(let r=0;r<4;r++){
+    for(let c=0;c<4;c++){
+      const ci=r*4+c+1;
+      // Orizzontale
+      if(c<3){
+        const cj=ci+1,k=edgeKey(ci-1,cj-1),cnt=edgeCount[k];
+        if(cnt>0.002){
+          const norm=Math.min(1,cnt/edgeMax);
+          const[er,eg,eb]=thermalColor(norm);
+          const a=xyL(ci),b=xyL(cj);
+          // Alone luminoso (blur proporzionale alla frequenza)
+          const blurPx=Math.max(1.5,norm*S*0.014);
+          ctx.save();ctx.filter=`blur(${blurPx}px)`;
+          ctx.strokeStyle=`rgba(${er},${eg},${eb},${norm*0.55})`;
+          ctx.lineWidth=norm*S*0.020+0.5;ctx.lineCap='round';
+          ctx.beginPath();ctx.moveTo(a.x+bx,a.y);ctx.lineTo(b.x-bx,b.y);ctx.stroke();ctx.restore();
+          // Linea core (spessa per le frequenti, sottile per le rare)
+          ctx.strokeStyle=`rgba(${er},${eg},${eb},${0.25+norm*0.70})`;
+          ctx.lineWidth=norm*5.5+0.4;ctx.lineCap='round';
+          ctx.beginPath();ctx.moveTo(a.x+bx,a.y);ctx.lineTo(b.x-bx,b.y);ctx.stroke();
+        }
+      }
+      // Verticale
+      if(r<3){
+        const cj=ci+4,k=edgeKey(ci-1,cj-1),cnt=edgeCount[k];
+        if(cnt>0.002){
+          const norm=Math.min(1,cnt/edgeMax);
+          const[er,eg,eb]=thermalColor(norm);
+          const a=xyL(ci),b=xyL(cj);
+          const blurPx=Math.max(1.5,norm*S*0.014);
+          ctx.save();ctx.filter=`blur(${blurPx}px)`;
+          ctx.strokeStyle=`rgba(${er},${eg},${eb},${norm*0.55})`;
+          ctx.lineWidth=norm*S*0.020+0.5;ctx.lineCap='round';
+          ctx.beginPath();ctx.moveTo(a.x,a.y+bx);ctx.lineTo(b.x,b.y-bx);ctx.stroke();ctx.restore();
+          ctx.strokeStyle=`rgba(${er},${eg},${eb},${0.25+norm*0.70})`;
+          ctx.lineWidth=norm*5.5+0.4;ctx.lineCap='round';
+          ctx.beginPath();ctx.moveTo(a.x,a.y+bx);ctx.lineTo(b.x,b.y-bx);ctx.stroke();
+        }
+      }
+    }
+  }
+}
+
+// ─── Main loop ───────────────────────────────────────────────────────────────
+function loop(now){
+  if(!T0)T0=now;NOW=now;
+
+  ctx.fillStyle='#060610';ctx.fillRect(0,0,W,H);
+  const vg=ctx.createRadialGradient(CX,CY,0,CX,CY,S*0.52);
+  vg.addColorStop(0,'rgba(12,10,30,0.3)');vg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+
+  // Activate sequences
+  for(let i=0;i<12;i++){if(states[i].phase==='waiting'&&now-T0>=START_OFFS[i]){states[i].phase='fadein';states[i].pt=now;}}
+  for(let fi=0;fi<12;fi++){if(states[fi].phase!=='waiting')updatePhase(fi,now);}
+  updateHeat();
+
+  const{cs,bx}=gridGeom();
+
+  // ── Layer 1: Inner hub ──
+  drawHub(now);
+
+  // ── Layer 3: Grid connector lines (ORIGINALE dal palinsesto) ──
+  ctx.save();
+  ctx.strokeStyle='rgba(60,80,120,0.07)';ctx.lineWidth=0.5;
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const i=r*4+c+1,pp=xyL(i);
+    if(c<3){const n=xyL(i+1);ctx.beginPath();ctx.moveTo(pp.x+bx,pp.y);ctx.lineTo(n.x-bx,pp.y);ctx.stroke();}
+    if(r<3){const n=xyL(i+4);ctx.beginPath();ctx.moveTo(pp.x,pp.y+bx);ctx.lineTo(pp.x,n.y-bx);ctx.stroke();}
+  }
+  ctx.restore();
+
+  // ── Layer 4: Edge heat (LABIRINTO) ──
+  drawEdges();
+
+  // ── Layer 5: Cell radial halos (ORIGINALE dal palinsesto) ──
+  for(let i=1;i<=16;i++){
+    const bl=cellBlend(i);if(!bl)continue;
+    const pp=xyL(i);
+    const gr=ctx.createRadialGradient(pp.x,pp.y,0,pp.x,pp.y,bx*4.5);
+    gr.addColorStop(0,`rgba(${bl.hr},${bl.hg},${bl.hb},${bl.a*0.18})`);
+    gr.addColorStop(1,`rgba(${bl.hr},${bl.hg},${bl.hb},0)`);
+    ctx.fillStyle=gr;ctx.fillRect(pp.x-bx*4.5,pp.y-bx*4.5,bx*9,bx*9);
+  }
+
+  // ── Layer 6: Cell boxes & symbols (ORIGINALE dal palinsesto + nexus indicator) ──
+  for(let i=1;i<=16;i++){
+    const bl=cellBlend(i),pp=xyL(i);
+    ctx.save();
+    if(bl&&bl.a>0.03){ctx.shadowColor=`rgba(${bl.r},${bl.g},${bl.b},${bl.a*0.75})`;ctx.shadowBlur=14*bl.a;}
+    const baseA=0.2;
+    const finalA=bl?Math.min(1,baseA+bl.a*0.8):baseA;
+    ctx.strokeStyle=bl&&bl.a>.08?`rgba(${bl.r},${bl.g},${bl.b},${finalA})`:`rgba(140,160,190,${baseA})`;
+    ctx.lineWidth=Math.max(0.5,0.7+(bl?bl.a*.5:0));
+    ctx.strokeRect(pp.x-bx,pp.y-bx,bx*2,bx*2);
+    ctx.shadowBlur=0;
+    drawSym(i,pp.x,pp.y,bx*.85,finalA);
+    // LABIRINTO: nexus ring quando 3+ sequenze convergono
+    const activeSeqs=Array.from({length:12}).filter((_,fi)=>states[fi].glow[i-1]>0.15).length;
+    if(activeSeqs>=3){
+      ctx.save();ctx.filter=`blur(${S*0.004}px)`;
+      ctx.strokeStyle=`rgba(255,255,255,${Math.min(0.85,activeSeqs*0.20)})`;
+      ctx.lineWidth=0.9;
+      ctx.beginPath();ctx.arc(pp.x,pp.y,bx*1.5,0,Math.PI*2);ctx.stroke();ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // ── Layer 6b: Legenda scala termica (angolo basso-destra) ──
+  {
+    const lx=W-S*0.04, ly=H-S*0.035, lw=S*0.22, lh=S*0.008;
+    const grad=ctx.createLinearGradient(lx-lw,ly,lx,ly);
+    grad.addColorStop(0,'rgba(0,0,255,0.7)');
+    grad.addColorStop(0.25,'rgba(0,255,255,0.7)');
+    grad.addColorStop(0.5,'rgba(0,255,0,0.7)');
+    grad.addColorStop(0.75,'rgba(255,255,0,0.7)');
+    grad.addColorStop(1,'rgba(255,0,0,0.7)');
+    ctx.save();
+    ctx.fillStyle=grad;ctx.fillRect(lx-lw,ly-lh,lw,lh);
+    ctx.font=`${S*0.016}px monospace`;ctx.fillStyle='rgba(180,185,210,0.55)';
+    ctx.textAlign='left';ctx.fillText('raro',lx-lw,ly+S*0.020);
+    ctx.textAlign='right';ctx.fillText('frequente',lx,ly+S*0.020);
+    ctx.restore();
+  }
+
+  // ── Layer 7: Particles (ORIGINALE dal palinsesto) ──
+  for(let fi=0;fi<12;fi++){
+    const seq=SEQUENCES[fi],st=states[fi];
+    if(st.phase==='waiting')continue;
+    const pp=particlePos(fi);if(!pp)continue;
+    const pr=bx*1.2;
+    ctx.save();
+    const gr=ctx.createRadialGradient(pp.x,pp.y,0,pp.x,pp.y,pr);
+    gr.addColorStop(0,`rgba(${seq.particle[0]},${seq.particle[1]},${seq.particle[2]},0.85)`);
+    gr.addColorStop(.3,`rgba(${seq.hue[0]},${seq.hue[1]},${seq.hue[2]},0.3)`);
+    gr.addColorStop(1,`rgba(${seq.hue[0]},${seq.hue[1]},${seq.hue[2]},0)`);
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(pp.x,pp.y,pr,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=`rgba(${seq.core[0]},${seq.core[1]},${seq.core[2]},0.9)`;
+    ctx.beginPath();ctx.arc(pp.x,pp.y,1.4,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

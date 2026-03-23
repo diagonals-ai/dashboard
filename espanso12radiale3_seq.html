@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Espanso 12 – Dodecagramma Radiale (consecuzione rigorosa)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060610;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden}
+canvas{display:block}
+</style>
+</head>
+<body><canvas id="c"></canvas>
+<script>
+(() => {
+const cvs=document.getElementById('c');
+const ctx=cvs.getContext('2d');
+let W,H,S,CX,CY;
+function resize(){W=cvs.width=window.innerWidth;H=cvs.height=window.innerHeight;S=Math.min(W,H)*0.96;CX=W/2;CY=H/2;}
+resize();window.addEventListener('resize',resize);
+function ease(t){return t<.5?2*t*t:-1+(4-2*t)*t;}
+
+// ─── Sequences ───────────────────────────────────────────────────────────────
+const SEQUENCES=[
+  {cells:[10,6,7,11,10],hue:[30,140,255],glow:[50,180,255],particle:[120,220,255],core:[220,245,255]},
+  {cells:[10,6,10,7,11,6,10,9,10,14,10],hue:[255,140,30],glow:[255,180,50],particle:[255,200,80],core:[255,240,200]},
+  {cells:[10,13,10,6,7,3,4,8,7,11,6,1,2,5,6,10,11,12,16,15,10],hue:[255,220,30],glow:[255,240,60],particle:[255,245,120],core:[255,255,220]},
+  {cells:[10,6,7,11,10,7,6,11,7,3,6,5,1,2,6,10,14,13,10,7,4,8,12,16,11,10,10],hue:[30,220,80],glow:[60,255,100],particle:[100,255,140],core:[210,255,220]},
+  {cells:[10,7,6,11,10,7,4,3,8,7,10,6,2,3,7,12,11,15,16,11,12,8,3,4,3,2,7,6,10],hue:[140,50,255],glow:[160,80,255],particle:[190,140,255],core:[230,215,255]},
+  {cells:[10,7,4,3,8,7,2,1,5,6,3,2,7,11,10,15,14,9,10],hue:[255,40,160],glow:[255,70,180],particle:[255,130,210],core:[255,215,240]},
+  {cells:[10,5,2,3,8,11,12,15,16,11,6,1,5,9,13,14,9,10,5,6,7,8,4,7,3,2,6,10],hue:[0,210,230],glow:[30,235,250],particle:[100,250,255],core:[200,255,255]},
+  {cells:[10,6,2,2,2,3,3,2,1,1,1,5,6,7,4,8,7,12,15,11,11,11,6,11,6,11,7,8,11,12,15,11,10],hue:[255,50,50],glow:[255,80,70],particle:[255,140,120],core:[255,220,210]},
+  {cells:[10,6,2,1,5,9,13,14,15,16,12,8,4,3,7,10,13,9,5,1,6,6,3,2,1,5,10,11,15,16,11,6,1,2,6,3,6,11,15,14,11,6,9,5,2,7,4,8,12,15,10,10,10],hue:[255,110,150],glow:[255,140,170],particle:[255,180,200],core:[255,230,240]},
+  {cells:[10,11,6,7,10,11,6,7,4,8,3,7,2,6,1,5,9,14,13,10,9,10,10,11,15,16,12,11,16,15,12,11,10,7,4,3,2,1,6,11,14,13,10,7,8,12,11,10,9,5,6,10],hue:[0,190,160],glow:[30,220,190],particle:[90,245,225],core:[200,255,248]},
+  {cells:[10,9,5,1,6,7,4,3,2,7,12,11,10,9,5,1,6,3,2,7,4,8,11,15,14,11,10,15,14,11,6,3,7,10,13,14,10,11,15,10],hue:[160,255,30],glow:[180,255,65],particle:[210,255,130],core:[235,255,215]},
+  {cells:[10,7,4,3,8,7,2,6,3,2,1,6,5,9,10,13,14,11,15,10],hue:[180,190,255],glow:[200,210,255],particle:[220,225,255],core:[245,248,255]}
+];
+const HOLD_T=600,MOVE_T=500,PULSE_T=500,PAUSE_T=800,FADEOUT_T=600;
+
+// ─── Consecuzione rigorosa: mai più di una sequenza attiva contemporaneamente ─
+// currentSeq = indice della sequenza in esecuzione (-1 = nessuna)
+// nextSeq    = prossima da avviare (gira in modulo 12)
+let currentSeq=-1,nextSeq=0;
+let T0=null,NOW=0;
+function makeState(){return{step:0,phase:'waiting',pt:0,glow:new Float32Array(16),lineOpacity:1,done:false};}
+const states=Array.from({length:12},makeState);
+
+// ─── Layout dodecagramma ─────────────────────────────────────────────────────
+const RING_ORDER=[1,2,3,4,8,12,16,15,14,13,9,5];
+const INNER_CELLS=[6,7,10,11];
+const TRIS=[
+  {cells:[1,8,14], col:[220,180,60]},
+  {cells:[2,12,13],col:[60,160,230]},
+  {cells:[3,16,9], col:[80,220,120]},
+  {cells:[4,15,5], col:[220,80,190]}
+];
+
+function cellPos(ci){
+  const ii=INNER_CELLS.indexOf(ci);
+  if(ii>=0){
+    const cs=S*0.046;
+    const dx=[-1,1,-1,1],dy=[-1,-1,1,1];
+    return{x:CX+dx[ii]*cs, y:CY+dy[ii]*cs};
+  }
+  const ri=RING_ORDER.indexOf(ci);
+  if(ri<0)return{x:CX,y:CY};
+  const ang=ri*Math.PI/6 - Math.PI/2;
+  const R=S*0.39;
+  return{x:CX+Math.cos(ang)*R, y:CY+Math.sin(ang)*R};
+}
+
+// ─── drawSym ─────────────────────────────────────────────────────────────────
+function drawSym(idx,cx,cy,sz,a){
+  ctx.save();
+  const col=`rgba(180,200,230,${a})`;ctx.fillStyle=col;ctx.strokeStyle=col;
+  ctx.lineWidth=Math.max(0.6,sz*0.06);ctx.lineCap='round';ctx.lineJoin='round';
+  const s=sz*0.6,numMap={10:'1',6:'2',7:'3',11:'4'};
+  switch(idx){
+    case 1:case 2:case 5:{const ch=idx===1?'B':idx===2?'C':'A';ctx.font=`600 ${sz*1.1}px Georgia,serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(ch,cx,cy+sz*0.03);}break;
+    case 6:case 7:case 10:case 11:{ctx.font=`700 ${sz*1.15}px Arial,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(numMap[idx],cx,cy+sz*0.04);}break;
+    case 3:ctx.beginPath();ctx.moveTo(cx-s*.5,cy);ctx.lineTo(cx+s*.5,cy);ctx.moveTo(cx,cy-s*.5);ctx.lineTo(cx,cy+s*.5);ctx.stroke();break;
+    case 4:ctx.beginPath();ctx.moveTo(cx-s*.4,cy-s*.16);ctx.lineTo(cx+s*.4,cy-s*.16);ctx.moveTo(cx-s*.4,cy+s*.16);ctx.lineTo(cx+s*.4,cy+s*.16);ctx.stroke();break;
+    case 8:ctx.beginPath();ctx.moveTo(cx-s*.4,cy);ctx.lineTo(cx+s*.4,cy);ctx.stroke();break;
+    case 9:{const h=s*.30;ctx.strokeRect(cx-h,cy-h,h*2,h*2);}break;
+    case 12:ctx.beginPath();ctx.arc(cx,cy,s*.38,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(cx,cy,1.5,0,Math.PI*2);ctx.fill();break;
+    case 13:ctx.beginPath();ctx.arc(cx,cy,s*.38,0,Math.PI*2);ctx.stroke();break;
+    case 14:{const r=s*.40;ctx.beginPath();ctx.moveTo(cx,cy-r);ctx.lineTo(cx+r*.87,cy+r*.5);ctx.lineTo(cx-r*.87,cy+r*.5);ctx.closePath();ctx.stroke();}break;
+    case 15:{const or_=s*.42,ir_=or_*.38;ctx.beginPath();for(let i=0;i<10;i++){const ang=-Math.PI/2+i*Math.PI/5,r=i%2?ir_:or_;ctx[i?'lineTo':'moveTo'](cx+Math.cos(ang)*r,cy+Math.sin(ang)*r);}ctx.closePath();ctx.stroke();}break;
+    case 16:{const mr=s*.38,off=mr*.4,ir=mr*.75;const xi=(ir*ir-mr*mr-off*off)/(2*off),yi2=mr*mr-xi*xi;if(yi2>0){const yi=Math.sqrt(yi2);ctx.beginPath();ctx.arc(cx,cy,mr,Math.atan2(-yi,xi),Math.atan2(yi,xi),false);ctx.arc(cx-off,cy,ir,Math.atan2(yi,xi+off),Math.atan2(-yi,xi+off),true);ctx.closePath();ctx.fill();}}break;
+  }
+  ctx.restore();
+}
+
+// ─── State machine ───────────────────────────────────────────────────────────
+function advanceStep(fi,now){
+  const seq=SEQUENCES[fi],st=states[fi];st.step++;
+  if(st.step>=seq.cells.length-1){st.phase='fadeout';st.pt=now;}
+  else{st.phase='hold';st.pt=now;}
+}
+function updatePhase(fi,now){
+  const seq=SEQUENCES[fi],st=states[fi],el=now-st.pt;st.glow.fill(0);
+  if(st.phase==='fadeout'){
+    const t=Math.min(1,el/FADEOUT_T);st.lineOpacity=1-ease(t);
+    st.glow[seq.cells[st.step]-1]=(1-t)*0.6;
+    if(t>=1){st.phase='pause';st.pt=now;st.lineOpacity=1;}
+  }
+  else if(st.phase==='pause'){
+    // Quando la pausa finisce: segnala done, NON ripartire da sola
+    if(!st.done&&el>=PAUSE_T) st.done=true;
+    // (la riattivazione avviene nel main loop, che avvia la prossima)
+  }
+  else if(st.phase==='fadein'){
+    const cur=seq.cells[st.step],t=Math.min(1,el/300);
+    st.glow[cur-1]=ease(t);if(t>=1){st.phase='hold';st.pt=now;}
+  }
+  else if(st.phase==='hold'){
+    const cur=seq.cells[st.step];st.glow[cur-1]=0.9+0.1*Math.cos(el*.005);
+    if(el>=HOLD_T){const nxt=seq.cells[st.step+1];
+      if(cur===nxt){st.phase='pulse';st.pt=now;}else{st.phase='flow';st.pt=now;}}
+  }
+  else if(st.phase==='pulse'){
+    const cur=seq.cells[st.step],t=Math.min(1,el/PULSE_T);
+    st.glow[cur-1]=0.5+0.5*Math.sin(t*Math.PI);if(t>=1)advanceStep(fi,now);
+  }
+  else if(st.phase==='flow'){
+    const cur=seq.cells[st.step],nxt=seq.cells[st.step+1],t=Math.min(1,el/MOVE_T);
+    st.glow[cur-1]=Math.max(0,1-t*1.6);
+    if(t>.55)st.glow[nxt-1]=ease((t-.55)/.45);
+    if(t>=1)advanceStep(fi,now);
+  }
+}
+
+// ─── cellBlend ───────────────────────────────────────────────────────────────
+function cellBlend(cellIdx){
+  let sumR=0,sumG=0,sumB=0,sumHR=0,sumHG=0,sumHB=0,totalW=0,maxG=0;
+  for(let fi=0;fi<12;fi++){
+    const gv=states[fi].glow[cellIdx-1];if(gv<0.01)continue;
+    const cg=SEQUENCES[fi].glow,ch=SEQUENCES[fi].hue;
+    sumR+=cg[0]*gv;sumG+=cg[1]*gv;sumB+=cg[2]*gv;
+    sumHR+=ch[0]*gv;sumHG+=ch[1]*gv;sumHB+=ch[2]*gv;
+    totalW+=gv;if(gv>maxG)maxG=gv;
+  }
+  if(!totalW)return null;
+  const inv=1/totalW;
+  return{
+    r:Math.min(255,Math.round(sumR*inv)),g:Math.min(255,Math.round(sumG*inv)),b:Math.min(255,Math.round(sumB*inv)),
+    hr:Math.min(255,Math.round(sumHR*inv)),hg:Math.min(255,Math.round(sumHG*inv)),hb:Math.min(255,Math.round(sumHB*inv)),
+    a:maxG
+  };
+}
+
+// ─── Contatore cumulativo percorsi frequenti ──────────────────────────────────
+const edgeCount=new Float32Array(16*16);
+let edgeMax=0.001;
+function edgeKey(a,b){return Math.min(a,b)*16+Math.max(a,b);}
+function thermalColor(t){
+  t=Math.max(0,Math.min(1,t));
+  if(t<0.25){const u=t*4;return[0,Math.round(u*255),255];}
+  if(t<0.5){const u=(t-0.25)*4;return[0,255,Math.round((1-u)*255)];}
+  if(t<0.75){const u=(t-0.5)*4;return[Math.round(u*255),255,0];}
+  const u=(t-0.75)*4;return[255,Math.round((1-u)*255),0];
+}
+function updateHeat(){
+  for(let i=0;i<edgeCount.length;i++)edgeCount[i]*=0.9998;
+  edgeMax=0.001;
+  for(let fi=0;fi<12;fi++){
+    const st=states[fi],seq=SEQUENCES[fi];
+    if(st.phase==='waiting')continue;
+    // flow: registra l'arco che si sta attraversando ORA (step → step+1)
+    if(st.phase==='flow'){
+      const a=seq.cells[st.step]-1,b=seq.cells[st.step+1]-1;
+      if(a!==b)edgeCount[edgeKey(a,b)]+=0.008;
+    }
+    // hold: registra l'arco appena percorso (step-1 → step)
+    else if(st.phase==='hold'&&st.step>0){
+      const a=seq.cells[st.step]-1,b=seq.cells[st.step-1]-1;
+      if(a!==b)edgeCount[edgeKey(a,b)]+=0.008;
+    }
+  }
+  for(let i=0;i<edgeCount.length;i++)if(edgeCount[i]>edgeMax)edgeMax=edgeCount[i];
+}
+
+// ─── Struttura dodecagramma ───────────────────────────────────────────────────
+function drawStructure(now){
+  const R=S*0.39;
+  const pulse=0.5+0.5*Math.sin(now*0.0018);
+  const verts=RING_ORDER.map((_,ri)=>{
+    const ang=ri*Math.PI/6-Math.PI/2;
+    return{x:CX+Math.cos(ang)*R,y:CY+Math.sin(ang)*R};
+  });
+  ctx.save();ctx.strokeStyle='rgba(70,80,130,0.08)';ctx.lineWidth=0.5;
+  ctx.beginPath();verts.forEach((v,i)=>i===0?ctx.moveTo(v.x,v.y):ctx.lineTo(v.x,v.y));
+  ctx.closePath();ctx.stroke();ctx.restore();
+  const STAR5=[0,5,10,3,8,1,6,11,4,9,2,7];
+  ctx.save();ctx.strokeStyle='rgba(90,100,170,0.06)';ctx.lineWidth=0.6;
+  ctx.beginPath();STAR5.forEach((vi,k)=>k===0?ctx.moveTo(verts[vi].x,verts[vi].y):ctx.lineTo(verts[vi].x,verts[vi].y));
+  ctx.closePath();ctx.stroke();ctx.restore();
+  for(let ti=0;ti<4;ti++){
+    const tri=TRIS[ti];
+    const pts=tri.cells.map(ci=>verts[RING_ORDER.indexOf(ci)]);
+    let gAct=0;
+    for(const ci of tri.cells)for(let fi=0;fi<12;fi++)gAct+=states[fi].glow[ci-1];
+    gAct=Math.min(1,gAct*0.25);
+    const[tr,tg,tb]=tri.col;
+    ctx.save();ctx.filter=`blur(${S*0.014}px)`;
+    ctx.strokeStyle=`rgba(${tr},${tg},${tb},${(0.06+gAct*0.30)*pulse})`;
+    ctx.lineWidth=1.2+gAct*S*0.016;
+    ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);ctx.lineTo(pts[1].x,pts[1].y);ctx.lineTo(pts[2].x,pts[2].y);ctx.closePath();ctx.stroke();ctx.restore();
+    ctx.strokeStyle=`rgba(${tr},${tg},${tb},${0.13+gAct*0.40})`;
+    ctx.lineWidth=0.7+gAct*1.8;
+    ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);ctx.lineTo(pts[1].x,pts[1].y);ctx.lineTo(pts[2].x,pts[2].y);ctx.closePath();ctx.stroke();
+  }
+  ctx.save();ctx.strokeStyle='rgba(60,70,120,0.04)';ctx.lineWidth=0.4;
+  for(const v of verts){ctx.beginPath();ctx.moveTo(CX,CY);ctx.lineTo(v.x,v.y);ctx.stroke();}
+  ctx.restore();
+}
+
+// ─── Edge termici ─────────────────────────────────────────────────────────────
+function drawEdges(){
+  for(let a=0;a<16;a++){
+    for(let b=a+1;b<16;b++){
+      const k=edgeKey(a,b),cnt=edgeCount[k];
+      if(cnt<0.003)continue;
+      const norm=Math.min(1,cnt/edgeMax);
+      const[er,eg,eb]=thermalColor(norm);
+      const pa=cellPos(a+1),pb=cellPos(b+1);
+      const blurPx=Math.max(1.5,norm*S*0.013);
+      ctx.save();ctx.filter=`blur(${blurPx}px)`;
+      ctx.strokeStyle=`rgba(${er},${eg},${eb},${norm*0.50})`;
+      ctx.lineWidth=norm*S*0.018+0.5;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();ctx.restore();
+      ctx.strokeStyle=`rgba(${er},${eg},${eb},${0.25+norm*0.65})`;
+      ctx.lineWidth=norm*5.2+0.4;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();
+    }
+  }
+}
+
+// ─── Hub centrale ─────────────────────────────────────────────────────────────
+function drawHub(now){
+  const cs=S*0.046;
+  for(const ci of INNER_CELLS){
+    const bl=cellBlend(ci);if(!bl||bl.a<0.02)continue;
+    const p=cellPos(ci);
+    ctx.save();ctx.filter=`blur(${S*0.028}px)`;
+    ctx.fillStyle=`rgba(${bl.hr},${bl.hg},${bl.hb},${bl.a*0.28})`;
+    ctx.beginPath();ctx.arc(p.x,p.y,cs*3.2,0,Math.PI*2);ctx.fill();ctx.restore();
+  }
+}
+
+// ─── Particelle ───────────────────────────────────────────────────────────────
+function particlePos(fi){
+  const seq=SEQUENCES[fi],st=states[fi];
+  if(st.phase!=='flow')return null;
+  const el=NOW-st.pt,t=Math.min(1,el/MOVE_T);
+  const a=cellPos(seq.cells[st.step]),b=cellPos(seq.cells[st.step+1]);
+  const et=ease(t);
+  return{x:a.x+(b.x-a.x)*et,y:a.y+(b.y-a.y)*et};
+}
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+function loop(now){
+  if(!T0)T0=now;NOW=now;
+
+  ctx.fillStyle='#060610';ctx.fillRect(0,0,W,H);
+  const vg=ctx.createRadialGradient(CX,CY,0,CX,CY,S*0.55);
+  vg.addColorStop(0,'rgba(12,10,30,0.35)');vg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+
+  // ── Attivazione rigorosa: una sola sequenza attiva alla volta ──
+  // Se non c'è nessuna in corso, oppure quella corrente ha finito → avvia la prossima
+  if(currentSeq===-1 || states[currentSeq].done){
+    // Resetta la precedente (torna a waiting, schermo pulito)
+    if(currentSeq>=0){
+      const ps=states[currentSeq];
+      ps.phase='waiting';ps.step=0;ps.done=false;ps.glow.fill(0);ps.lineOpacity=1;
+    }
+    // Avvia la prossima
+    currentSeq=nextSeq;
+    nextSeq=(nextSeq+1)%12;
+    const ns=states[currentSeq];
+    ns.phase='fadein';ns.pt=now;ns.step=0;ns.done=false;ns.lineOpacity=1;
+  }
+
+  // Aggiorna solo la sequenza attiva
+  if(currentSeq>=0 && states[currentSeq].phase!=='waiting'){
+    updatePhase(currentSeq,now);
+  }
+  updateHeat();
+
+  const nodeR =S*0.036;
+  const innerR=S*0.040;
+
+  drawHub(now);
+  drawStructure(now);
+  drawEdges();
+
+  // Aloni cella
+  for(let i=1;i<=16;i++){
+    const bl=cellBlend(i);if(!bl)continue;
+    const pp=cellPos(i);
+    const hr=(INNER_CELLS.includes(i)?innerR:nodeR)*5;
+    const gr=ctx.createRadialGradient(pp.x,pp.y,0,pp.x,pp.y,hr);
+    gr.addColorStop(0,`rgba(${bl.hr},${bl.hg},${bl.hb},${bl.a*0.20})`);
+    gr.addColorStop(1,`rgba(${bl.hr},${bl.hg},${bl.hb},0)`);
+    ctx.fillStyle=gr;ctx.fillRect(pp.x-hr,pp.y-hr,hr*2,hr*2);
+  }
+
+  // Nodi, simboli, nexus ring
+  for(let i=1;i<=16;i++){
+    const bl=cellBlend(i),pp=cellPos(i);
+    const isInner=INNER_CELLS.includes(i);
+    const nr=isInner?innerR:nodeR;
+    ctx.save();
+    if(bl&&bl.a>0.03){ctx.shadowColor=`rgba(${bl.r},${bl.g},${bl.b},${bl.a*0.75})`;ctx.shadowBlur=14*bl.a;}
+    const baseA=0.22;
+    const finalA=bl?Math.min(1,baseA+bl.a*0.8):baseA;
+    ctx.strokeStyle=bl&&bl.a>.08?`rgba(${bl.r},${bl.g},${bl.b},${finalA})`:`rgba(140,160,190,${baseA})`;
+    ctx.lineWidth=Math.max(0.5,0.7+(bl?bl.a*0.5:0));
+    if(!isInner){ctx.beginPath();ctx.arc(pp.x,pp.y,nr,0,Math.PI*2);ctx.stroke();}
+    ctx.shadowBlur=0;
+    drawSym(i,pp.x,pp.y,nr*0.88,finalA);
+    const activeSeqs=Array.from({length:12}).filter((_,fi)=>states[fi].glow[i-1]>0.15).length;
+    if(activeSeqs>=3){
+      ctx.save();ctx.filter=`blur(${S*0.003}px)`;
+      ctx.strokeStyle=`rgba(255,255,255,${Math.min(0.85,activeSeqs*0.20)})`;
+      ctx.lineWidth=0.9;
+      ctx.beginPath();ctx.arc(pp.x,pp.y,nr*1.65,0,Math.PI*2);ctx.stroke();ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // Legenda termica
+  {
+    const lx=W-S*0.04,ly=H-S*0.035,lw=S*0.22,lh=S*0.008;
+    const grad=ctx.createLinearGradient(lx-lw,ly,lx,ly);
+    grad.addColorStop(0,'rgba(0,0,255,0.7)');grad.addColorStop(0.25,'rgba(0,255,255,0.7)');
+    grad.addColorStop(0.5,'rgba(0,255,0,0.7)');grad.addColorStop(0.75,'rgba(255,255,0,0.7)');
+    grad.addColorStop(1,'rgba(255,0,0,0.7)');
+    ctx.save();ctx.fillStyle=grad;ctx.fillRect(lx-lw,ly-lh,lw,lh);
+    ctx.font=`${S*0.015}px monospace`;ctx.fillStyle='rgba(180,185,210,0.50)';
+    ctx.textAlign='left';ctx.fillText('raro',lx-lw,ly+S*0.020);
+    ctx.textAlign='right';ctx.fillText('frequente',lx,ly+S*0.020);
+    ctx.restore();
+  }
+
+  // Particelle
+  for(let fi=0;fi<12;fi++){
+    const seq=SEQUENCES[fi],st=states[fi];
+    if(st.phase==='waiting')continue;
+    const pp=particlePos(fi);if(!pp)continue;
+    const pr=nodeR*1.15;
+    ctx.save();
+    const gr=ctx.createRadialGradient(pp.x,pp.y,0,pp.x,pp.y,pr);
+    gr.addColorStop(0,`rgba(${seq.particle[0]},${seq.particle[1]},${seq.particle[2]},0.85)`);
+    gr.addColorStop(.3,`rgba(${seq.hue[0]},${seq.hue[1]},${seq.hue[2]},0.3)`);
+    gr.addColorStop(1,`rgba(${seq.hue[0]},${seq.hue[1]},${seq.hue[2]},0)`);
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(pp.x,pp.y,pr,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=`rgba(${seq.core[0]},${seq.core[1]},${seq.core[2]},0.9)`;
+    ctx.beginPath();ctx.arc(pp.x,pp.y,1.4,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
