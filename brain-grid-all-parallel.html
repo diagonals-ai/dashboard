@@ -339,7 +339,9 @@
       ctx.save();
       ctx.globalAlpha = 0.28;
       const g = Math.min(W, H) * 0.90;
-      ctx.drawImage(brainImg, (W - g) / 2, (H - g) / 2, g, g);
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(Math.PI);
+      ctx.drawImage(brainImg, -g / 2, -g / 2, g, g);
       ctx.restore();
     }
     // Griglia di sfondo
